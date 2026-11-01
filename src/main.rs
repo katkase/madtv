@@ -482,6 +482,31 @@ fn report(m: &Machine) {
         println!("  tutti: {}", all.join(" "));
     }
     println!("--- audio:\n  {}", c.paula.describe());
+    println!(
+        "--- memoria: in uso {} KB, massimo {} KB (librerie e strutture emulate comprese)",
+        m.os.heap.in_use / 1024,
+        m.os.heap.peak / 1024
+    );
+    if std::env::var("MADTV_HEAP").is_ok() {
+        let mut v: Vec<(u32, u32)> = m.os.heap.used.iter().map(|(a, s)| (*s, *a)).collect();
+        v.sort_by_key(|x| std::cmp::Reverse(x.0));
+        for (size, a) in v.iter().take(15) {
+            println!("    blocco ${a:06x}: {} KB", size / 1024);
+        }
+        let small: u32 = v.iter().filter(|x| x.0 <= 64).map(|x| x.0).sum();
+        println!(
+            "    blocchi da <= 64 byte: {} ({} KB)",
+            v.iter().filter(|x| x.0 <= 64).count(),
+            small / 1024
+        );
+        let total: u32 = v.iter().map(|x| x.0).sum();
+        println!(
+            "    somma reale di {} blocchi: {} KB; libera: {} KB",
+            v.len(),
+            total / 1024,
+            m.os.heap.available() / 1024
+        );
+    }
     if m.bus.unmapped_reads + m.bus.unmapped_writes > 0 {
         let first: Vec<String> = m
             .bus

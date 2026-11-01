@@ -37,7 +37,14 @@ interfaccia in inglese (vedi domande aperte). MD5:
 - disco 2 (MTV2): `a59073203f3d695bd261bba2b0057447`
 
 Per WinUAE (confronti con l'originale): Kickstart 1.3 rev 34.5 A500,
-`kick34005.A500`, CRC32 `c4f0f55f`.
+`kick34005.A500`, CRC32 `c4f0f55f`, con **512 KB Chip + 512 KB Slow RAM**:
+il gioco occupa circa 600 KB (circa 270 KB allocati dinamicamente, di cui
+200 KB in Chip RAM, più circa 310 KB di codice e dati), quindi con soli
+512 KB non parte. Misura: il rapporto finale dell'emulatore riporta la memoria
+in uso e il massimo (`MADTV_HEAP=1` elenca i blocchi più grandi).
+
+`add21` (primo comando della startup-sequence) è estetico: ritocca la
+viewport dello schermo del Workbench e lo ridisegna; non serve al gioco.
 
 ## Cosa fa il gioco con il sistema (dal trace)
 

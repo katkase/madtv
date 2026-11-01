@@ -117,6 +117,9 @@ pub struct Heap {
     free: BTreeMap<u32, u32>,
     /// Blocchi allocati: inizio → dimensione (per diagnostica e FreeMem senza dimensione).
     pub used: BTreeMap<u32, u32>,
+    /// Memoria allocata in questo momento e massimo raggiunto (byte).
+    pub in_use: u32,
+    pub peak: u32,
 }
 
 impl Heap {
@@ -126,6 +129,8 @@ impl Heap {
         Heap {
             free,
             used: BTreeMap::new(),
+            in_use: 0,
+            peak: 0,
         }
     }
 
@@ -137,6 +142,8 @@ impl Heap {
             self.free.insert(start + size, len - size);
         }
         self.used.insert(start, size);
+        self.in_use += size;
+        self.peak = self.peak.max(self.in_use);
         Some(start)
     }
 
@@ -156,6 +163,8 @@ impl Heap {
             self.free.insert(addr + size, start + len - addr - size);
         }
         self.used.insert(addr, size);
+        self.in_use += size;
+        self.peak = self.peak.max(self.in_use);
         Some(addr)
     }
 
@@ -163,6 +172,7 @@ impl Heap {
         let Some(size) = self.used.remove(&addr) else {
             return false;
         };
+        self.in_use -= size;
         let mut start = addr;
         let mut len = size;
         if let Some((&ps, &pl)) = self.free.range(..start).next_back()
@@ -455,6 +465,8 @@ mod tests {
         // Dopo aver liberato tutto deve restare un unico blocco libero.
         assert_eq!(h.largest(), 0x1000);
         assert!(!h.free(a), "doppia liberazione rilevata");
+        assert_eq!(h.in_use, 0);
+        assert_eq!(h.peak, 304);
     }
 
     #[test]
