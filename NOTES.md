@@ -3,20 +3,28 @@
 Questo file è la "memoria" del progetto tra una sessione e l'altra: stato,
 scoperte, decisioni e prossimi passi. Va aggiornato alla fine di ogni sessione.
 
-## Stato attuale (fine fase 1, 1 novembre 2026)
+## Stato attuale (fine fase 2, 1 novembre 2026)
 
-- Il gioco si avvia dal disco originale, decomprime il proprio eseguibile
-  (Imploder) dentro l'emulatore, stampa `***** MAD TV AMIGA VERSION 2.1 ******`,
-  carica circa 90 file dai due dischi e disegna la **schermata di selezione dei
-  giocatori**.
-- Stabile per almeno 15.000 frame (5 minuti di gioco emulato), eseguiti in circa
-  8 secondi: l'emulazione è ~40 volte più veloce del tempo reale.
-- Nessuna finestra: il programma esegue N frame e salva screenshot PNG.
+- **Giocabile in una finestra** (minifb, 50 Hz, scala 3 di default), con mouse
+  e tastiera. Provato via script: nuova partita, vista dell'edificio, dialoghi
+  del capo, modifica dei nomi dei giocatori con la tastiera.
+- Il caricamento iniziale (circa 25 s a velocità reale) viene accelerato in
+  automatico finché lo schermo è nero; F11 tenuto premuto = avanti veloce.
+- Velocità dell'emulazione: circa 1.000 frame/s (20 volte il tempo reale).
+- **Manca l'audio**: il gioco accende i canali 0 e 1 (DMACON = `$03D3`)
+  durante la partita, quindi ci sono già effetti sonori da emulare.
+- La modalità senza finestra (`--headless`) resta, con gli script di azioni,
+  per test e analisi.
+
+### Storia
+
+- Fase 1: avvio fino alla schermata di selezione dei giocatori.
+- Fase 2: renderer riga per riga, sprite, finestra, mouse, tastiera, script.
 
 ## Versione dei dischi
 
-Set "Mad TV v2.1 (1991)(Rainbow Arts)", **versione spagnola** (testi in
-spagnolo con qualche avanzo inglese). MD5:
+Set "Mad TV v2.1 (1991)(Rainbow Arts)", con file di dati in spagnolo e
+interfaccia in inglese (vedi domande aperte). MD5:
 
 - disco 1 (MTV1): `77f660cbb2c6ab7d4979f09acda3ebf7`
 - disco 2 (MTV2): `a59073203f3d695bd261bba2b0057447`
@@ -45,6 +53,16 @@ Hardware usato direttamente:
   la tastiera (CIA-A SDR `$BFEC01`) e il mouse (JOY0DAT);
 - blitter in modalità area, mai (finora) in modalità linea;
 - POTGO/POTGOR a ogni frame (tasto destro del mouse).
+- **Puntatore del mouse**: lo disegna il gioco col blitter (non è uno sprite;
+  la copper list spegne anzi il DMA degli sprite con `MOVE $0020,DMACON`).
+  La sua posizione, in pixel dello schermo, sta in due word all'offset
+  `$40`/`$42` del segmento dati (segmento 2 della seglist; `$044650` nel nostro
+  caricamento). Una copia a `+6` sembra la posizione precedente. La finestra la
+  usa per tenere allineato il puntatore del gioco con quello del PC.
+- **Mouse**: 1 conteggio del mouse Amiga = 1 pixel lores (misurato).
+- **Tastiera**: il gioco legge la CIA-A SDR nel suo interrupt e reagisce ai
+  cambiamenti del valore (nessun handshake necessario). Invio conferma i
+  campi di testo.
 
 ## Bug trovati e risolti in fase 1 (utili per il futuro)
 
@@ -62,41 +80,44 @@ Hardware usato direttamente:
 
 ## Limiti noti
 
-- Renderer: niente sprite, niente scroll fine (BPLCON1), niente dual
-  playfield né HAM; i cambi di registro a metà riga valgono per tutta la riga.
-- Blitter: modalità linea non emulata (viene contata nel rapporto).
-- Tastiera: la CIA-A SDR restituisce sempre 0.
-- Audio: nessuno. Nota: all'avvio il gioco prova `Lock("078.HES")` nella
-  directory corrente (MTV1:), ma la musica TFMX sta sul disco 2: verificare in
-  WinUAE se la versione su floppy suona davvero la musica.
+- Renderer: niente priorità sprite/playfield (BPLCON2), niente scroll fine
+  (BPLCON1), niente dual playfield né HAM; i cambi di registro a metà riga
+  valgono per tutta la riga; le righe hires vengono dimezzate.
+- Blitter: modalità linea non emulata (viene contata nel rapporto; finora mai usata).
+- Tastiera: nessun tastierino numerico; i tasti senza equivalente Amiga sono ignorati.
+- Audio: nessuno (vedi fase 3). All'avvio il gioco prova `Lock("078.HES")`
+  nella directory corrente (MTV1:), ma la musica TFMX sta sul disco 2:
+  verificare in WinUAE se la versione su floppy suona davvero la musica.
 - La startup-sequence originale lancia anche `rai` (intro Rainbow Arts) e
   `v u3.lbm` (visualizzatore IFF): per ora eseguiamo solo `mtv s`.
-- Delay() salta i frame in un colpo solo (il copper gira solo sull'ultima riga).
+- Delay() salta i frame in un colpo solo.
+- La finestra non è ridimensionabile (scala fissa scelta all'avvio).
 
-## Prossimi passi (fase 2: grafica e input)
+## Prossimi passi (fase 3: audio)
 
-1. Finestra con `minifb` o `pixels`+`winit`, a 50 Hz; scala 2× o 3×.
-2. Mouse: dalla finestra a JOY0DAT (contatori) + tasti (CIA-A PRA bit 6,
-   POTGOR bit 10).
-3. Tastiera: sequenza della CIA-A (SDR + interrupt PORTS/livello 2), codici
-   tasto Amiga.
-4. Renderer per riga con lo stato registrato dal copper durante il frame
-   (invece di rieseguire la copper list alla fine).
-5. Sprite (puntatore del mouse, se il gioco li usa).
-6. Confronto con WinUAE sulle stesse schermate.
+1. Paula: 4 canali DMA (AUDxLC, AUDxLEN, AUDxPER, AUDxVOL, AUDxDAT),
+   interrupt di fine campione (AUD0-3, livello 4), ADKCON (modulazioni, rare).
+2. Uscita audio con `cpal`, ricampionamento da ~3,5 MHz / periodo a 44,1 o 48 kHz,
+   filtro passa-basso, stereo Amiga (canali 0/3 a sinistra, 1/2 a destra).
+3. Sincronizzazione audio/video: l'audio guida il ritmo dei frame.
+4. Capire perché la musica TFMX non parte (o se sulla versione floppy manca):
+   `Lock("078.HES")` fallisce nella directory corrente.
+5. Facoltativo: intro `rai` e immagine `u3.lbm` prima del gioco.
 
 ## Decisioni prese
 
 - Approccio: emulazione ad alto livello (HLE) del sistema operativo + chipset
   minimo; riscrittura in Rust delle funzioni del gioco solo in seguito,
   una alla volta, verificandole contro l'originale.
-- Core CPU: `m68k` 0.15 (MIT). Licenza del nostro codice: **da decidere**
-  (vedi domande aperte).
+- Core CPU: `m68k` 0.15 (MIT). Licenza del nostro codice: **GPL-3.0-or-later**
+  (scelta anche per poter riusare, se servirà, codice di Copperline, che è GPL).
 - Il repository non contiene file del gioco: gli ADF vanno messi in `adf/`
   (ignorata da git).
 
 ## Domande aperte per Pam
 
-- Licenza del progetto (MIT? GPL? nessuna per ora?).
-- Lingua: con questi dischi il gioco è in spagnolo. Servono ADF di un'altra
-  lingua, se la si vuole.
+- Lingua: questi dischi sono un misto. Interfaccia e dialoghi visti finora
+  sono in inglese ("Select a player", "Welcome to MadTV!"), ma molti file di
+  dati (descrizioni dei film, notizie) sono in spagnolo. Da verificare in
+  WinUAE se anche l'originale si comporta così; per una versione coerente
+  servirebbero gli ADF di un'altra edizione.

@@ -21,9 +21,14 @@ Rust, che contiene solo ciò che il gioco usa davvero.
                       │                          │
                       ▼                          ▼
             ┌────────────────────┐   ┌───────────────────────┐
-            │ adf.rs: dischi ADF │   │ render.rs: immagine    │
-            │ + salvataggi su PC │   │ (copper + bitplane)    │
-            └────────────────────┘   └───────────────────────┘
+            │ adf.rs: dischi ADF │   │ render.rs: display     │
+            │ + salvataggi su PC │   │ riga per riga          │
+            └────────────────────┘   └──────────┬────────────┘
+                                                 ▼
+                                     ┌───────────────────────┐
+                                     │ window.rs + input.rs   │
+                                     │ finestra, mouse, tasti │
+                                     └───────────────────────┘
 ```
 
 ## La CPU
@@ -97,15 +102,58 @@ modificati.
   generato dal copper per scandire il tempo;
 - **blitter**: modalità area completa (4 canali, scorrimenti, maschere,
   modalità discendente, riempimento); termina istantaneamente;
-- **mouse/joystick**: JOY0DAT, POTGOR, CIA-A PRA (tasti).
+- **mouse/tastiera**: JOY0DAT, POTGOR, CIA-A PRA (tasti del mouse), CIA-A SDR (tastiera);
+- **sprite**: puntatori SPRxPT; il DMA vero e proprio è nel display.
 
-## Il renderer
+## Il display
 
-`render.rs` ricostruisce l'immagine a fine frame: riesegue la copper list riga
-per riga sullo stato dei registri e converte i bitplane in pixel RGB (palette a
-12 bit). Gestisce lores/hires, finestra di visualizzazione (DIWSTRT/DIWSTOP),
-fetch (DDFSTRT/DDFSTOP), moduli (quindi anche le bitmap interleaved del gioco)
-ed Extra Half-Brite. Mancano sprite, scroll fine, dual playfield e HAM.
+`render.rs` disegna l'immagine **riga per riga durante l'emulazione**: a ogni
+riga di scansione `Custom::advance` esegue prima il copper e poi
+`Display::line`, che:
+
+- legge i bitplane dagli indirizzi correnti BPLxPT e li fa avanzare di
+  (parole lette × 2 + modulo), come il DMA dell'hardware: le bitmap
+  interleaved del gioco e i cambi di puntatore a metà schermo funzionano senza
+  casi speciali;
+- usa la palette in vigore su quella riga (il copper può cambiarla);
+- gestisce il DMA degli sprite (intestazioni POS/CTL, coppie di parole dati,
+  sprite collegati a 15 colori) e li disegna sopra il playfield;
+- all'inizio di ogni frame scambia i buffer: `display.front` è sempre l'ultimo
+  frame completo, pronto per la finestra o per un PNG.
+
+Gestisce lores/hires (le righe hires vengono dimezzate in larghezza),
+finestra di visualizzazione (DIWSTRT/DIWSTOP), fetch (DDFSTRT/DDFSTOP),
+moduli ed Extra Half-Brite. Mancano priorità degli sprite, scroll fine, dual
+playfield e HAM.
+
+## Input
+
+`input.rs` traduce mouse e tastiera nei registri che il gioco legge:
+
+- mouse: contatori di JOY0DAT (1 conteggio = 1 pixel lores), tasto sinistro
+  sul bit 6 di CIA-A PRA, destro sul bit 10 di POTGOR;
+- tastiera: CIA-A SDR, con la codifica della tastiera Amiga (codice ruotato a
+  sinistra e negato, bit 7 = rilascio).
+
+Nella finestra (`window.rs`) il puntatore del gioco viene tenuto allineato con
+quello del PC: a ogni frame leggiamo la posizione del puntatore dalle variabili
+del gioco (`Machine::game_pointer`) e inviamo la differenza come movimento del
+mouse.
+
+### Script di azioni
+
+`input.rs` definisce anche un piccolo linguaggio per automatizzare il gioco
+senza finestra: voci `FRAME:azione` (`goto X Y`, `move DX DY`, `click`,
+`key NOME`, `type TESTO`, `shot NOME`...). Serve per i test, per riprodurre un
+problema e per confrontare il comportamento con WinUAE. Esempio in
+`scripts/nuova-partita.txt`.
+
+## La finestra
+
+`window.rs` usa `minifb`: buffer 320×256 ingrandito a pixel interi (scala
+configurabile), 50 frame al secondo. Il cursore del PC è nascosto perché il
+puntatore lo disegna il gioco. Avanti veloce automatico finché lo schermo è nero
+(caricamento) e con F11; F12 salva uno screenshot.
 
 ## Memoria
 

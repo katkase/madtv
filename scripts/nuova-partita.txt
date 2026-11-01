@@ -1,0 +1,4 @@
+# Esempio di script: nuova partita e screenshot del primo dialogo
+1290: goto 55 101
+1320: click
+2000: shot capo

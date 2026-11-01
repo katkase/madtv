@@ -3,26 +3,40 @@
 //! Esegui `madtv --help` per l'elenco delle opzioni.
 
 use madtv::adf::Adf;
+use madtv::input::{self, Action};
 use madtv::machine::{Machine, StopReason};
 use madtv::os::vfs::Vfs;
 use madtv::render;
-use std::cell::RefCell;
+use madtv::window::{self, WindowOpts};
 use std::path::{Path, PathBuf};
-use std::rc::Rc;
 
 const HELP: &str = "\
-Mad TV - porting Rust della versione Amiga (fase 1: avvio e prima schermata)
+Mad TV - porting Rust della versione Amiga
 
 USO: madtv [opzioni]
+
+Di default apre la finestra di gioco (F11 tenuto premuto = avanti veloce,
+F12 = screenshot).
 
   --adf-dir DIR      cartella con le immagini ADF originali (default: adf)
                      i dischi vengono riconosciuti dal nome di volume (MTV1, MTV2)
   --save-dir DIR     cartella per i salvataggi del gioco (default: save)
-  --frames N         ferma l'emulazione dopo N frame PAL (default: 500)
-  --max-instr N      ferma dopo N istruzioni 68000 (default: 400000000)
-  --trace FILE       scrive ogni chiamata di sistema in FILE
-  --shot-every N     salva uno screenshot PNG ogni N frame (0 = solo alla fine)
+  --scale N          ingrandimento della finestra (default: 3)
+  --mouse-ratio R    conteggi del mouse Amiga per pixel (default: 1.0)
+  --headless         nessuna finestra: esegue --frames frame e salva screenshot
+  --frames N         (headless) frame PAL da eseguire, 50 = 1 secondo (default: 500)
+  --max-instr N      (headless) limite di istruzioni 68000
+  --shot-every N     (headless) uno screenshot PNG ogni N frame (0 = solo alla fine)
   --shot-dir DIR     cartella degli screenshot (default: shots)
+  --script TESTO     azioni automatiche: \"FRAME:azione; FRAME:azione...\"
+                     (oppure @file per leggerle da un file). Azioni:
+                       move DX DY   sposta il mouse (conteggi Amiga)
+                       goto X Y     porta il puntatore del gioco in (X, Y)
+                       click | down | up | rdown | rup   tasti del mouse
+                       key NOME | keydown NOME | keyup NOME   tasti (A, ENTER, F1...)
+                       type TESTO   scrive un testo
+                       shot NOME    salva shots/NOME.png
+  --trace FILE       scrive ogni chiamata di sistema in FILE
   --dump FILE        salva la RAM emulata (2 MB) in FILE all'arresto
   --list             elenca i file dei dischi ed esce
   --help             questo messaggio
@@ -31,11 +45,15 @@ USO: madtv [opzioni]
 struct Opts {
     adf_dir: PathBuf,
     save_dir: PathBuf,
+    scale: usize,
+    mouse_ratio: f32,
+    headless: bool,
     frames: u64,
     max_instr: u64,
     trace: Option<PathBuf>,
     shot_every: u64,
     shot_dir: PathBuf,
+    script: Vec<(u64, Action)>,
     list: bool,
     dump: Option<PathBuf>,
 }
@@ -44,11 +62,15 @@ fn parse_args() -> Result<Opts, String> {
     let mut o = Opts {
         adf_dir: "adf".into(),
         save_dir: "save".into(),
+        scale: 3,
+        mouse_ratio: 1.0,
+        headless: false,
         frames: 500,
-        max_instr: 400_000_000,
+        max_instr: u64::MAX,
         trace: None,
         shot_every: 0,
         shot_dir: "shots".into(),
+        script: Vec::new(),
         list: false,
         dump: None,
     };
@@ -58,11 +80,22 @@ fn parse_args() -> Result<Opts, String> {
         match a.as_str() {
             "--adf-dir" => o.adf_dir = val()?.into(),
             "--save-dir" => o.save_dir = val()?.into(),
+            "--scale" => o.scale = val()?.parse().map_err(|e| format!("{e}"))?,
+            "--mouse-ratio" => o.mouse_ratio = val()?.parse().map_err(|e| format!("{e}"))?,
+            "--headless" => o.headless = true,
             "--frames" => o.frames = val()?.parse().map_err(|e| format!("{e}"))?,
             "--max-instr" => o.max_instr = val()?.parse().map_err(|e| format!("{e}"))?,
             "--trace" => o.trace = Some(val()?.into()),
             "--shot-every" => o.shot_every = val()?.parse().map_err(|e| format!("{e}"))?,
             "--shot-dir" => o.shot_dir = val()?.into(),
+            "--script" => {
+                let v = val()?;
+                let src = match v.strip_prefix('@') {
+                    Some(f) => std::fs::read_to_string(f).map_err(|e| format!("{f}: {e}"))?,
+                    None => v,
+                };
+                o.script = input::expand(input::parse_script(&src)?);
+            }
             "--list" => o.list = true,
             "--dump" => o.dump = Some(val()?.into()),
             "--help" | "-h" => {
@@ -156,30 +189,26 @@ fn main() {
     m.boot_os();
     // La startup-sequence originale lancia "mtv s".
     m.load_executable(&exe, "s").expect("eseguibile non valido");
-    println!("eseguibile caricato: punto di ingresso ${:06x}", m.entry);
-    for (i, (a, size, kind)) in m.segments.iter().enumerate() {
-        println!("  segmento {i}: {kind:4} ${a:06x} {size} byte");
-    }
-
-    std::fs::create_dir_all(&o.shot_dir).ok();
-    let shots = Rc::new(RefCell::new(0u32));
-    if o.shot_every > 0 {
-        let dir = o.shot_dir.clone();
-        let every = o.shot_every;
-        let shots = shots.clone();
-        m.frame_hook = Some(Box::new(move |bus, frame| {
-            if frame % every == 0 {
-                let f = render::render(bus);
-                let p = dir.join(format!("frame{frame:05}.png"));
-                if render::save_png(&f, &p).is_ok() {
-                    *shots.borrow_mut() += 1;
-                }
-            }
-        }));
-    }
 
     let t0 = std::time::Instant::now();
-    let reason = m.run(o.max_instr, o.frames);
+    let reason = if o.headless {
+        run_headless(&mut m, &o)
+    } else {
+        // Lo script, se c'è, viene applicato prima di aprire la finestra
+        // fino all'ultimo frame indicato (utile per saltare il caricamento).
+        let pre = run_script_until(&mut m, &o, o.script.last().map(|x| x.0).unwrap_or(0));
+        match pre {
+            Some(r) => r,
+            None => {
+                let wo = WindowOpts {
+                    scale: o.scale,
+                    shot_dir: o.shot_dir.clone(),
+                    mouse_ratio: o.mouse_ratio,
+                };
+                window::run(&mut m, &wo).unwrap_or(StopReason::FrameLimit)
+            }
+        }
+    };
     let dt = t0.elapsed();
     if let Some(t) = m.os.trace.as_mut() {
         use std::io::Write;
@@ -217,27 +246,98 @@ fn main() {
         std::fs::write(d, &m.bus.ram).expect("impossibile scrivere il dump");
         println!("RAM salvata in {}", d.display());
     }
-    let f = render::render(&m.bus);
-    let p = o.shot_dir.join("final.png");
-    match render::save_png(&f, &p) {
-        Ok(()) => println!(
-            "schermata finale: {} ({}x{}, {} bitplane{}, {} righe attive, {} MOVE copper)",
-            p.display(),
-            f.width,
-            f.height,
-            f.planes,
-            if f.ham { ", HAM" } else { "" },
-            f.active_lines,
-            f.copper_moves
-        ),
-        Err(e) => println!("impossibile salvare lo screenshot: {e}"),
+    if o.headless {
+        std::fs::create_dir_all(&o.shot_dir).ok();
+        let p = o.shot_dir.join("final.png");
+        let d = &m.bus.custom.display;
+        match render::save_png(&d.front, &p) {
+            Ok(()) => println!(
+                "schermata finale: {} ({} bitplane, {} righe attive)",
+                p.display(),
+                d.last_planes,
+                d.last_active_lines
+            ),
+            Err(e) => println!("impossibile salvare lo screenshot: {e}"),
+        }
     }
-    if *shots.borrow() > 0 {
-        println!(
-            "screenshot intermedi: {} in {}",
-            shots.borrow(),
-            o.shot_dir.display()
-        );
+}
+
+/// Avvicina il puntatore del gioco al bersaglio (al massimo 100 conteggi per frame).
+fn step_goto(m: &mut Machine, target: &mut Option<(i32, i32)>) {
+    let Some((tx, ty)) = *target else { return };
+    let Some((px, py)) = m.game_pointer() else {
+        return;
+    };
+    let (dx, dy) = ((tx - px).clamp(-100, 100), (ty - py).clamp(-100, 100));
+    if dx == 0 && dy == 0 {
+        *target = None;
+    } else {
+        input::mouse_move(&mut m.bus.custom, dx, dy);
+    }
+}
+
+/// Applica le azioni dello script previste per il frame corrente.
+fn apply_actions(m: &mut Machine, o: &Opts, next: &mut usize, target: &mut Option<(i32, i32)>) {
+    step_goto(m, target);
+    let frame = m.bus.custom.frame;
+    while *next < o.script.len() && o.script[*next].0 <= frame {
+        let c = &mut m.bus.custom;
+        match &o.script[*next].1 {
+            Action::Move(dx, dy) => input::mouse_move(c, *dx, *dy),
+            Action::Goto(x, y) => *target = Some((*x, *y)),
+            Action::LeftDown => c.left_button = true,
+            Action::LeftUp => c.left_button = false,
+            Action::RightDown => c.right_button = true,
+            Action::RightUp => c.right_button = false,
+            Action::KeyDown(k) => input::key(c, *k, true),
+            Action::KeyUp(k) => input::key(c, *k, false),
+            Action::Shot(name) => {
+                std::fs::create_dir_all(&o.shot_dir).ok();
+                let p = o.shot_dir.join(format!("{name}.png"));
+                let _ = render::save_png(&c.display.front, &p);
+                println!("[frame {frame}] screenshot {}", p.display());
+            }
+            Action::Click | Action::Key(_) | Action::Type(_) => {} // già espanse
+        }
+        *next += 1;
+    }
+}
+
+fn run_script_until(m: &mut Machine, o: &Opts, last: u64) -> Option<StopReason> {
+    let mut next = 0usize;
+    let mut target = None;
+    while m.bus.custom.frame <= last && next < o.script.len() {
+        apply_actions(m, o, &mut next, &mut target);
+        if let Some(r) = m.run_frame() {
+            return Some(r);
+        }
+    }
+    None
+}
+
+fn run_headless(m: &mut Machine, o: &Opts) -> StopReason {
+    let mut next = 0usize;
+    let mut target = None;
+    loop {
+        let frame = m.bus.custom.frame;
+        if frame >= o.frames {
+            return StopReason::FrameLimit;
+        }
+        if m.instructions >= o.max_instr {
+            return StopReason::InstructionLimit;
+        }
+        apply_actions(m, o, &mut next, &mut target);
+        if let Some(r) = m.run_frame() {
+            return r;
+        }
+        let f = m.bus.custom.frame;
+        if o.shot_every > 0 && f.is_multiple_of(o.shot_every) {
+            std::fs::create_dir_all(&o.shot_dir).ok();
+            let _ = render::save_png(
+                &m.bus.custom.display.front,
+                &o.shot_dir.join(format!("frame{f:05}.png")),
+            );
+        }
     }
 }
 
@@ -247,7 +347,7 @@ fn describe(r: &StopReason) -> String {
         StopReason::Unimplemented(s) => format!("funzione non implementata: {s}"),
         StopReason::Exception(s) => s.clone(),
         StopReason::InstructionLimit => "raggiunto il limite di istruzioni".into(),
-        StopReason::FrameLimit => "raggiunto il limite di frame".into(),
+        StopReason::FrameLimit => "fine (limite di frame o finestra chiusa)".into(),
         StopReason::CpuHalted => "CPU bloccata (doppio errore di bus)".into(),
     }
 }
@@ -255,7 +355,7 @@ fn describe(r: &StopReason) -> String {
 fn report(m: &Machine) {
     println!("--- chiamate di sistema:");
     let mut calls: Vec<_> = m.os.call_counts.iter().collect();
-    calls.sort_by(|a, b| b.1.cmp(a.1));
+    calls.sort_by_key(|x| std::cmp::Reverse(*x.1));
     for ((lib, idx), n) in calls.iter().take(40) {
         println!(
             "  {:>8}  {}.{}",
@@ -273,7 +373,7 @@ fn report(m: &Machine) {
         .filter(|(_, n)| **n > 0)
         .map(|(i, n)| (i, *n))
         .collect();
-    regs.sort_by(|a, b| b.1.cmp(&a.1));
+    regs.sort_by_key(|x| std::cmp::Reverse(x.1));
     let line: Vec<String> = regs
         .iter()
         .take(30)
@@ -281,9 +381,16 @@ fn report(m: &Machine) {
         .collect();
     println!("  {}", line.join(" "));
     println!(
-        "  blittate: {} (di cui in modalità linea, non ancora emulate: {})  COP1LC=${:06x}  DMACON=${:04x}  INTENA=${:04x}",
+        "  blittate: {} (in modalità linea, non ancora emulate: {})  COP1LC=${:06x}  DMACON=${:04x}  INTENA=${:04x}",
         c.blits, c.line_blits, c.cop1lc, c.dmacon, c.intena
     );
+    if std::env::var("MADTV_ALLREGS").is_ok() {
+        let all: Vec<String> = regs
+            .iter()
+            .map(|(i, n)| format!("{}={}", madtv::custom::reg_name((*i * 2) as u16), n))
+            .collect();
+        println!("  tutti: {}", all.join(" "));
+    }
     if m.bus.unmapped_reads + m.bus.unmapped_writes > 0 {
         let first: Vec<String> = m
             .bus

@@ -131,6 +131,8 @@ pub struct Custom {
     pub cop_wait: Option<(u16, u16)>,
     pub cop_halted: bool,
     pub copper_moves: u64,
+    /// Immagine a schermo, costruita riga per riga.
+    pub display: crate::render::Display,
 }
 
 impl Custom {
@@ -157,6 +159,7 @@ impl Custom {
             cop_wait: None,
             cop_halted: true,
             copper_moves: 0,
+            display: crate::render::Display::new(),
         };
         c.cia[0][0] = 0xFF; // PRA: nessun pulsante premuto, disco inserito
         c
@@ -166,30 +169,33 @@ impl Custom {
         (self.cycles / CYCLES_PER_LINE) % LINES_PER_FRAME
     }
 
-    /// Avanza il tempo di `cycles` cicli CPU, eseguendo il copper a ogni nuova
-    /// riga. Restituisce true se è iniziato un nuovo frame (vertical blank).
+    /// Avanza il tempo di `cycles` cicli CPU. Per ogni riga di scansione
+    /// attraversata esegue il copper e disegna la riga. Restituisce true se è
+    /// iniziato almeno un nuovo frame (vertical blank).
     pub fn advance(&mut self, cycles: u64, ram: &mut [u8]) -> bool {
-        let frame_cycles = CYCLES_PER_LINE * LINES_PER_FRAME;
         let line_before = self.cycles / CYCLES_PER_LINE;
-        let frame_before = self.cycles / frame_cycles;
         self.cycles += cycles;
         let line_after = self.cycles / CYCLES_PER_LINE;
-        let frame_after = self.cycles / frame_cycles;
-        let mut new_frame = false;
-        if frame_after != frame_before {
-            self.frame = frame_after;
-            self.intreq |= 0x0020; // VERTB
-            // All'inizio di ogni frame il copper riparte da COP1LC.
-            self.cop_pc = self.cop1lc;
-            self.cop_wait = None;
-            self.cop_halted = self.cop1lc == 0;
-            new_frame = true;
+        if line_after == line_before {
+            return false;
         }
-        if line_after != line_before || new_frame {
-            // Se sono passate molte righe in un colpo (Delay, STOP), eseguiamo
-            // il copper solo per la riga corrente: basta per gli effetti di fine lista.
-            let line = (line_after % LINES_PER_FRAME) as u16;
-            self.run_copper(line, ram);
+        // Dopo un salto lungo (Delay, STOP) basta emulare l'ultimo frame intero.
+        let first = (line_before + 1).max(line_after.saturating_sub(LINES_PER_FRAME - 1));
+        let mut new_frame = false;
+        for abs in first..=line_after {
+            let y = (abs % LINES_PER_FRAME) as u32;
+            if y == 0 {
+                self.frame = abs / LINES_PER_FRAME;
+                self.intreq |= 0x0020; // VERTB
+                // All'inizio di ogni frame il copper riparte da COP1LC.
+                self.cop_pc = self.cop1lc;
+                self.cop_wait = None;
+                self.cop_halted = self.cop1lc == 0;
+                self.display.end_frame();
+                new_frame = true;
+            }
+            self.run_copper(y as u16, ram);
+            self.display.line(y, &mut self.regs, self.dmacon, ram);
         }
         new_frame
     }
@@ -289,6 +295,9 @@ impl Custom {
             }
             0x084 | 0x086 => self.cop2lc = self.long_reg(0x084),
             0x058 => self.blit(ram),
+            0x120..=0x13E => self
+                .display
+                .sprite_pointer_written(((off - 0x120) / 4) as usize),
             _ => {}
         }
     }

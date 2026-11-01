@@ -12,6 +12,8 @@ pub mod adf;
 pub mod bus;
 pub mod custom;
 pub mod hunk;
+pub mod input;
 pub mod machine;
 pub mod os;
 pub mod render;
+pub mod window;

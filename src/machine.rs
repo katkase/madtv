@@ -39,8 +39,6 @@ pub struct Machine {
     pub seglist: u32,
     /// Segmenti caricati: (indirizzo dei dati, dimensione, tipo).
     pub segments: Vec<(u32, u32, &'static str)>,
-    /// Callback chiamata a ogni nuovo frame (per screenshot, statistiche...).
-    pub frame_hook: Option<Box<dyn FnMut(&Bus, u64)>>,
     /// Ultimi PC eseguiti (diagnostica in caso di errore).
     pub pc_history: [u32; 64],
     pub pc_hist_pos: usize,
@@ -65,7 +63,6 @@ impl Machine {
             entry: 0,
             seglist: 0,
             segments: Vec::new(),
-            frame_hook: None,
             pc_history: [0; 64],
             pc_hist_pos: 0,
         }
@@ -261,6 +258,34 @@ impl Machine {
         }
     }
 
+    /// Posizione del puntatore del mouse secondo il gioco (pixel dello schermo),
+    /// letta dalle sue variabili: offset $40/$42 del segmento dati (segmento 2
+    /// della seglist, che dopo la decompressione contiene i dati del programma).
+    /// Scoperta confrontando la RAM prima e dopo movimenti noti del mouse.
+    pub fn game_pointer(&self) -> Option<(i32, i32)> {
+        let (base, size, _) = *self.segments.get(2)?;
+        if size < 0x44 {
+            return None;
+        }
+        let x = self.bus.peek16(base + 0x40) as i16 as i32;
+        let y = self.bus.peek16(base + 0x42) as i16 as i32;
+        if (0..=400).contains(&x) && (0..=300).contains(&y) {
+            Some((x, y))
+        } else {
+            None
+        }
+    }
+
+    /// Esegue un frame completo (fino al prossimo vertical blank).
+    /// Restituisce None se il frame è terminato normalmente.
+    pub fn run_frame(&mut self) -> Option<StopReason> {
+        let target = self.bus.custom.frame + 1;
+        match self.run(u64::MAX, target) {
+            StopReason::FrameLimit => None,
+            other => Some(other),
+        }
+    }
+
     /// Esegue fino a un evento di arresto.
     pub fn run(&mut self, max_instructions: u64, max_frames: u64) -> StopReason {
         loop {
@@ -355,12 +380,7 @@ impl Machine {
                 let to_next = FRAME_CYCLES - self.bus.custom.cycles % FRAME_CYCLES;
                 extra = to_next + (frames - 1) * FRAME_CYCLES;
             }
-            if self.bus.custom.advance(cycles + extra, &mut self.bus.ram) {
-                let frame = self.bus.custom.frame;
-                if let Some(h) = self.frame_hook.as_mut() {
-                    h(&self.bus, frame);
-                }
-            }
+            self.bus.custom.advance(cycles + extra, &mut self.bus.ram);
         }
     }
 }

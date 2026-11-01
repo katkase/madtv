@@ -1,106 +1,204 @@
-//! Generazione dell'immagine a schermo (OCS, PAL) a partire da copper list e
-//! bitplane.
+//! Display OCS (PAL), disegnato riga per riga durante l'emulazione.
 //!
-//! Per ogni riga di scansione eseguiamo le istruzioni copper fino alla prima
-//! WAIT non ancora soddisfatta, poi convertiamo i bitplane della riga in pixel.
-//! Semplificazioni attuali (fase 1): niente sprite, niente scroll fine
-//! (BPLCON1), niente dual playfield; i cambi di registro a metà riga valgono
-//! per tutta la riga. HAM non è ancora supportato; l'Extra Half-Brite sì.
+//! A ogni riga di scansione `Custom` esegue prima il copper e poi chiama
+//! [`Display::line`], che:
+//! - legge i bitplane dagli indirizzi correnti BPLxPT (i registri veri);
+//! - fa avanzare i puntatori di (parole lette × 2 + modulo), come fa il DMA
+//!   dei bitplane sull'hardware, così le bitmap interleaved e i cambi di
+//!   puntatore a metà schermo funzionano senza casi speciali;
+//! - converte i pixel con la palette in vigore in quel momento.
+//!
+//! L'immagine è 320×256 (risoluzione lores, righe PAL da $2C a $12B). Le righe
+//! hires vengono ridotte prendendo un pixel ogni due (Mad TV è tutto lores).
+//! Sprite: gli 8 sprite hardware sono letti via DMA (POS/CTL e coppie di
+//! parole dati) e disegnati sopra il playfield, anche collegati a 15 colori.
+//! Mancano ancora: priorità sprite/playfield (BPLCON2), scroll fine
+//! (BPLCON1), dual playfield, HAM. L'Extra Half-Brite è supportato.
 
-use crate::bus::Bus;
+pub const WIDTH: usize = 320;
+pub const HEIGHT: usize = 256;
+/// Prima riga PAL mostrata (il valore standard di DIWSTRT).
+pub const FIRST_LINE: u32 = 0x2C;
 
-pub struct Frame {
-    pub width: u32,
-    pub height: u32,
-    pub rgb: Vec<u8>,
-    /// Diagnostica: righe visibili con bitplane attivi, istruzioni copper eseguite.
-    pub active_lines: u32,
-    pub copper_moves: u32,
-    pub planes: u8,
-    pub hires: bool,
-    pub ham: bool,
+/// Stato del DMA di uno sprite.
+#[derive(Clone, Copy, Default)]
+struct Sprite {
+    /// Intestazione (POS/CTL) già letta per il blocco corrente.
+    armed: bool,
+    /// Lista finita per questo frame (POS = CTL = 0).
+    done: bool,
+    vstart: u32,
+    vstop: u32,
+    hstart: u32,
+    attached: bool,
+    /// Dati della riga corrente (A = bit 0 del colore, B = bit 1).
+    data_a: u16,
+    data_b: u16,
+    visible_now: bool,
 }
 
-/// Prima riga PAL visualizzata (nell'immagine) e numero di righe.
-const FIRST_LINE: u32 = 0x2C;
-const LINES: u32 = 256;
+pub struct Display {
+    sprites: [Sprite; 8],
+    /// Frame in costruzione e ultimo frame completo, in formato 0x00RRGGBB.
+    back: Vec<u32>,
+    pub front: Vec<u32>,
+    pub frames: u64,
+    /// Diagnostica dell'ultimo frame completo.
+    pub last_active_lines: u32,
+    pub last_planes: u8,
+    active_lines: u32,
+    planes: u8,
+    pub ham_seen: bool,
+    pub hires_seen: bool,
+}
 
-pub fn render(bus: &Bus) -> Frame {
-    let c = &bus.custom;
-    let mut regs = c.regs;
-    let copper_on = c.dmacon & 0x0280 == 0x0280;
-    let bpl_on = c.dmacon & 0x0300 == 0x0300;
-
-    let hires_any = regs[0x100 / 2] & 0x8000 != 0;
-    let width: u32 = if hires_any { 640 } else { 320 };
-    let mut rgb = vec![0u8; (width * LINES * 3) as usize];
-
-    let mut cop = c.cop1lc;
-    let mut cop_done = !copper_on || cop == 0;
-    let mut moves = 0u32;
-    let mut waiting: Option<(u16, u16)> = None; // (vp, maschera verticale)
-    let mut active = 0u32;
-    let mut ptrs = [0u32; 6];
-    for (i, p) in ptrs.iter_mut().enumerate() {
-        *p = long(&regs, 0xE0 + i as u16 * 4);
+impl Default for Display {
+    fn default() -> Self {
+        Self::new()
     }
-    let mut max_planes = 0u8;
-    let mut ham_seen = false;
+}
 
-    for y in 0..313u32 {
-        // --- copper ---
-        let mut guard = 0;
-        while !cop_done && guard < 2000 {
-            guard += 1;
-            if let Some((vp, mask)) = waiting {
-                let beam = (y & 0xFF) as u16;
-                if (beam & mask) >= (vp & mask) {
-                    waiting = None;
-                } else {
-                    break;
-                }
-            }
-            let w1 = bus.peek16(cop);
-            let w2 = bus.peek16(cop + 2);
-            cop += 4;
-            if w1 & 1 == 0 {
-                // MOVE
-                let reg = w1 & 0x1FE;
-                regs[(reg / 2) as usize] = w2;
-                moves += 1;
-                if (0xE0..0xF8).contains(&reg) {
-                    let i = ((reg - 0xE0) / 4) as usize;
-                    ptrs[i] = long(&regs, 0xE0 + i as u16 * 4);
-                }
-                if reg == 0x88 {
-                    cop = long(&regs, 0x80); // COPJMP1
-                } else if reg == 0x8A {
-                    cop = long(&regs, 0x84); // COPJMP2
-                }
-            } else if w2 & 1 == 0 {
-                // WAIT
-                if w1 == 0xFFFF && w2 == 0xFFFE {
-                    cop_done = true;
-                } else {
-                    let vp = w1 >> 8;
-                    let vmask = ((w2 >> 8) & 0x7F) | 0x80;
-                    waiting = Some((vp, vmask));
-                }
+impl Display {
+    pub fn new() -> Display {
+        Display {
+            sprites: [Sprite::default(); 8],
+            back: vec![0; WIDTH * HEIGHT],
+            front: vec![0; WIDTH * HEIGHT],
+            frames: 0,
+            last_active_lines: 0,
+            last_planes: 0,
+            active_lines: 0,
+            planes: 0,
+            ham_seen: false,
+            hires_seen: false,
+        }
+    }
+
+    /// Chiamata all'inizio di ogni frame: il frame appena finito diventa visibile.
+    pub fn end_frame(&mut self) {
+        std::mem::swap(&mut self.front, &mut self.back);
+        self.last_active_lines = self.active_lines;
+        self.last_planes = self.planes;
+        self.active_lines = 0;
+        self.planes = 0;
+        self.frames += 1;
+    }
+
+    /// Il programma (o il copper) ha scritto il puntatore dello sprite `n`:
+    /// il DMA riparte leggendo una nuova intestazione.
+    pub fn sprite_pointer_written(&mut self, n: usize) {
+        self.sprites[n & 7] = Sprite::default();
+    }
+
+    /// DMA degli sprite per la riga `y`: legge intestazioni e dati e fa avanzare SPRxPT.
+    fn sprite_dma(&mut self, y: u32, regs: &mut [u16; 256], ram: &[u8]) {
+        let rd = |a: u32| -> u16 {
+            let a = (a & 0x1F_FFFE) as usize;
+            if a + 1 < ram.len() {
+                u16::from_be_bytes([ram[a], ram[a + 1]])
             } else {
-                // SKIP: ignorato (raro)
+                0
+            }
+        };
+        for (n, sp) in self.sprites.iter_mut().enumerate() {
+            sp.visible_now = false;
+            if sp.done {
+                continue;
+            }
+            let reg = 0x120 / 2 + n * 2;
+            let mut ptr = ((regs[reg] as u32) << 16) | regs[reg + 1] as u32;
+            if ptr == 0 {
+                continue;
+            }
+            if !sp.armed {
+                // Il DMA degli sprite inizia dopo il vertical blank (riga $19 circa).
+                if y < 0x19 {
+                    continue;
+                }
+                let pos = rd(ptr);
+                let ctl = rd(ptr + 2);
+                ptr += 4;
+                regs[0x140 / 2 + n * 4] = pos;
+                regs[0x142 / 2 + n * 4] = ctl;
+                if pos == 0 && ctl == 0 {
+                    sp.done = true;
+                } else {
+                    sp.armed = true;
+                    sp.vstart = (pos >> 8) as u32 | (((ctl >> 2) & 1) as u32) << 8;
+                    sp.vstop = (ctl >> 8) as u32 | (((ctl >> 1) & 1) as u32) << 8;
+                    sp.hstart = ((pos & 0xFF) as u32) << 1 | (ctl & 1) as u32;
+                    sp.attached = ctl & 0x80 != 0;
+                }
+            } else if y >= sp.vstart && y < sp.vstop {
+                sp.data_a = rd(ptr);
+                sp.data_b = rd(ptr + 2);
+                ptr += 4;
+                sp.visible_now = true;
+                if y + 1 == sp.vstop {
+                    sp.armed = false; // la riga dopo si legge la prossima intestazione
+                }
+            } else if y >= sp.vstop {
+                sp.armed = false;
+            }
+            regs[reg] = (ptr >> 16) as u16;
+            regs[reg + 1] = ptr as u16;
+        }
+    }
+
+    /// Disegna gli sprite visibili su questa riga sopra i pixel già disegnati.
+    fn draw_sprites(&mut self, row: usize, regs: &[u16; 256]) {
+        let diw_h = (regs[0x8E / 2] & 0xFF) as i32;
+        let out = &mut self.back[row..row + WIDTH];
+        // Dal più basso al più alto in priorità (lo sprite 0 vince su tutti).
+        for n in (0..8).rev() {
+            let sp = self.sprites[n];
+            if !sp.visible_now {
+                continue;
+            }
+            // Uno sprite dispari collegato viene disegnato insieme al pari precedente.
+            if n % 2 == 1 && sp.attached {
+                continue;
+            }
+            let partner =
+                if n % 2 == 0 && self.sprites[n + 1].attached && self.sprites[n + 1].visible_now {
+                    Some(self.sprites[n + 1])
+                } else {
+                    None
+                };
+            let x0 = sp.hstart as i32 - diw_h + 1;
+            for bit in 0..16 {
+                let x = x0 + bit;
+                if x < 0 || x >= WIDTH as i32 {
+                    continue;
+                }
+                let m = 15 - bit as u16;
+                let lo = ((sp.data_a >> m) & 1) | (((sp.data_b >> m) & 1) << 1);
+                let color = if let Some(o) = partner {
+                    let hi = ((o.data_a >> m) & 1) | (((o.data_b >> m) & 1) << 1);
+                    let idx = (hi << 2) | lo;
+                    if idx == 0 {
+                        continue;
+                    }
+                    16 + idx as usize
+                } else {
+                    if lo == 0 {
+                        continue;
+                    }
+                    16 + (n / 2) * 4 + lo as usize
+                };
+                out[x as usize] = rgb12(regs[0x180 / 2 + color]);
             }
         }
+    }
 
-        // --- bitplane ---
-        if !(FIRST_LINE..FIRST_LINE + LINES).contains(&y) {
-            continue;
-        }
-        let out_y = y - FIRST_LINE;
+    /// Disegna la riga `y` (0..313) con lo stato attuale dei registri.
+    /// `regs` è modificato: i puntatori dei bitplane avanzano.
+    pub fn line(&mut self, y: u32, regs: &mut [u16; 256], dmacon: u16, ram: &[u8]) {
+        let visible = (FIRST_LINE..FIRST_LINE + HEIGHT as u32).contains(&y);
         let con0 = regs[0x100 / 2];
         let planes = ((con0 >> 12) & 7) as usize;
         let hires = con0 & 0x8000 != 0;
         let ham = con0 & 0x0800 != 0;
-        ham_seen |= ham && planes > 0;
         let diwstrt = regs[0x8E / 2];
         let diwstop = regs[0x90 / 2];
         let vstart = (diwstrt >> 8) as u32;
@@ -108,110 +206,142 @@ pub fn render(bus: &Bus) -> Frame {
         if vstop & 0x80 == 0 {
             vstop += 256;
         }
-        let colors: Vec<[u8; 3]> = (0..32)
-            .map(|i| rgb12(regs[(0x180 / 2 + i) as usize]))
-            .collect();
-        let row = (out_y * width * 3) as usize;
+        let bpl_on = dmacon & 0x0300 == 0x0300;
         let in_window = y >= vstart && y < vstop;
-        // Sfondo: COLOR00
-        for x in 0..width as usize {
-            rgb[row + x * 3..row + x * 3 + 3].copy_from_slice(&colors[0]);
+        if y == 0 {
+            for sp in self.sprites.iter_mut() {
+                sp.armed = false;
+                sp.done = false;
+            }
+        }
+        let spr_on = dmacon & 0x0220 == 0x0220;
+        if spr_on {
+            self.sprite_dma(y, regs, ram);
+        }
+
+        let color0 = rgb12(regs[0x180 / 2]);
+        let row = if visible {
+            Some((y - FIRST_LINE) as usize * WIDTH)
+        } else {
+            None
+        };
+        if let Some(r) = row {
+            self.back[r..r + WIDTH].fill(color0);
         }
         if !bpl_on || planes == 0 || !in_window {
-            continue;
+            if let (Some(r), true) = (row, spr_on) {
+                self.draw_sprites(r, regs);
+            }
+            return;
         }
-        active += 1;
-        max_planes = max_planes.max(planes as u8);
+        self.ham_seen |= ham;
+        self.hires_seen |= hires;
+
+        // Quante parole legge il DMA per riga (da DDFSTRT/DDFSTOP).
         let ddfstrt = regs[0x92 / 2] & 0xFC;
-        let ddfstop = regs[0x94 / 2] & 0xFC;
+        let ddfstop = (regs[0x94 / 2] & 0xFC).max(ddfstrt);
         let words = if hires {
-            ((ddfstop.saturating_sub(ddfstrt)) >> 2) as u32 + 2
+            ((ddfstop - ddfstrt) >> 2) as usize + 2
         } else {
-            ((ddfstop.saturating_sub(ddfstrt)) >> 3) as u32 + 1
+            ((ddfstop - ddfstrt) >> 3) as usize + 1
         };
         let mod1 = regs[0x108 / 2] as i16 as i32;
         let mod2 = regs[0x10A / 2] as i16 as i32;
-        // Posizione orizzontale di inizio della finestra rispetto al primo fetch.
+
+        // Lettura dei bitplane e avanzamento dei puntatori.
+        let mut data = [[0u16; 48]; 6];
+        let words = words.min(48);
+        for (p, plane) in data.iter_mut().enumerate().take(planes) {
+            let reg = 0xE0 / 2 + p * 2;
+            let ptr = ((regs[reg] as u32) << 16) | regs[reg + 1] as u32;
+            for (w, slot) in plane.iter_mut().enumerate().take(words) {
+                let a = ((ptr + w as u32 * 2) & 0x1F_FFFE) as usize;
+                *slot = if a + 1 < ram.len() {
+                    u16::from_be_bytes([ram[a], ram[a + 1]])
+                } else {
+                    0
+                };
+            }
+            let m = if p % 2 == 0 { mod1 } else { mod2 };
+            let next = (ptr as i64 + words as i64 * 2 + m as i64) as u32 & 0x1F_FFFE;
+            regs[reg] = (next >> 16) as u16;
+            regs[reg + 1] = next as u16;
+        }
+
+        let Some(r) = row else { return };
+        self.active_lines += 1;
+        self.planes = self.planes.max(planes as u8);
+
+        let mut palette = [0u32; 64];
+        for (i, c) in palette.iter_mut().enumerate().take(32) {
+            *c = rgb12(regs[0x180 / 2 + i]);
+        }
+        for i in 32..64 {
+            let c = palette[i - 32];
+            palette[i] = (c >> 1) & 0x7F7F7F; // Extra Half-Brite: metà luminosità
+        }
+
+        // Allineamento orizzontale: il primo pixel della finestra (DIWSTRT) rispetto
+        // al primo pixel letto (DDFSTRT). In lores un fetch a $38 con DIWSTRT $81
+        // è allineato: pixel = 2*ddf + 17 (in unità lores).
         let hstart = (diwstrt & 0xFF) as i32;
-        let fetch_start_px = if hires {
-            (ddfstrt as i32 * 2 + 17) * 2
+        let first_px = if hires {
+            (ddfstrt as i32 * 2 + 9) * 2
         } else {
             ddfstrt as i32 * 2 + 17
         };
         let skip = if hires {
-            (hstart * 2) - fetch_start_px
+            hstart * 2 - first_px
         } else {
-            hstart - fetch_start_px
+            hstart - first_px
         };
-        let px_per_line = words * 16;
-        let scale = if hires || !hires_any { 1 } else { 2 };
-        for px in 0..px_per_line {
+        let total = words * 16;
+        let step = if hires { 2 } else { 1 };
+        let out = &mut self.back[r..r + WIDTH];
+        let mut ox = 0usize;
+        let mut px = skip.max(0) as usize;
+        while px < total && ox < WIDTH {
             let w = px / 16;
             let bit = 15 - (px % 16);
             let mut idx = 0usize;
-            for p in 0..planes {
-                let word = bus.peek16(ptrs[p] + w * 2);
-                if word & (1 << bit) != 0 {
-                    idx |= 1 << p;
-                }
+            for (p, plane) in data.iter().enumerate().take(planes) {
+                idx |= (((plane[w] >> bit) & 1) as usize) << p;
             }
-            let ox = px as i32 - skip.max(0);
-            if ox < 0 {
-                continue;
-            }
-            let color = if planes == 6 && !ham && idx >= 32 {
-                let c0 = colors[idx - 32];
-                [c0[0] / 2, c0[1] / 2, c0[2] / 2]
+            out[ox] = if planes == 6 && !ham {
+                palette[idx]
             } else {
-                colors[idx & 31]
+                palette[idx & 31]
             };
-            for s in 0..scale {
-                let x = (ox as u32) * scale + s;
-                if x < width {
-                    let o = row + x as usize * 3;
-                    rgb[o..o + 3].copy_from_slice(&color);
-                }
-            }
+            ox += 1;
+            px += step;
         }
-        for p in 0..planes {
-            let m = if p % 2 == 0 { mod1 } else { mod2 };
-            ptrs[p] = (ptrs[p] as i64 + (words * 2) as i64 + m as i64) as u32;
+        if spr_on {
+            self.draw_sprites(r, regs);
         }
     }
+}
 
-    Frame {
-        width,
-        height: LINES,
-        rgb,
-        active_lines: active,
-        copper_moves: moves,
-        planes: max_planes,
-        hires: hires_any,
-        ham: ham_seen,
+fn rgb12(v: u16) -> u32 {
+    let r = ((v >> 8) & 0xF) as u32 * 17;
+    let g = ((v >> 4) & 0xF) as u32 * 17;
+    let b = (v & 0xF) as u32 * 17;
+    (r << 16) | (g << 8) | b
+}
+
+/// Salva un frame (0x00RRGGBB) in PNG.
+pub fn save_png(pixels: &[u32], path: &std::path::Path) -> std::io::Result<()> {
+    let mut rgb = Vec::with_capacity(pixels.len() * 3);
+    for p in pixels {
+        rgb.extend_from_slice(&[(p >> 16) as u8, (p >> 8) as u8, *p as u8]);
     }
-}
-
-fn long(regs: &[u16; 256], off: u16) -> u32 {
-    ((regs[(off / 2) as usize] as u32) << 16) | regs[(off / 2 + 1) as usize] as u32
-}
-
-fn rgb12(v: u16) -> [u8; 3] {
-    [
-        ((v >> 8) & 0xF) as u8 * 17,
-        ((v >> 4) & 0xF) as u8 * 17,
-        (v & 0xF) as u8 * 17,
-    ]
-}
-
-pub fn save_png(frame: &Frame, path: &std::path::Path) -> std::io::Result<()> {
     let file = std::fs::File::create(path)?;
     let w = std::io::BufWriter::new(file);
-    let mut enc = png::Encoder::new(w, frame.width, frame.height);
+    let mut enc = png::Encoder::new(w, WIDTH as u32, HEIGHT as u32);
     enc.set_color(png::ColorType::Rgb);
     enc.set_depth(png::BitDepth::Eight);
     let mut writer = enc.write_header().map_err(std::io::Error::other)?;
     writer
-        .write_image_data(&frame.rgb)
+        .write_image_data(&rgb)
         .map_err(std::io::Error::other)?;
     Ok(())
 }

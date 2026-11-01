@@ -9,14 +9,14 @@ tu, come fanno OpenRCT2 o ScummVM.
 
 ## Stato
 
-**Fase 1 completata**: il codice originale del gioco gira nel nostro "Amiga
-minimo" e arriva alla schermata di selezione dei giocatori.
+**Fase 2 completata**: il gioco si gioca in una finestra, con mouse e tastiera.
+Manca ancora l'audio (fase 3).
 
-![Prima schermata](docs/img/fase1-selezione-giocatori.png)
+| Selezione dei giocatori | L'edificio della rete | Il capo |
+|---|---|---|
+| ![](docs/img/fase1-selezione-giocatori.png) | ![](docs/img/fase2-edificio.png) | ![](docs/img/fase2-capo.png) |
 
-Per ora il programma gira "a occhi chiusi": esegue il gioco per un certo
-numero di frame e salva gli screenshot in PNG. La finestra, il mouse e l'audio
-arrivano nelle fasi successive (vedi [NOTES.md](NOTES.md)).
+Lo stato dettagliato e i prossimi passi sono in [NOTES.md](NOTES.md).
 
 ## Come funziona, in breve
 
@@ -29,14 +29,14 @@ per il blitter. Invece di riscriverlo da zero, il porting:
 3. sostituisce AmigaOS con un'implementazione in Rust delle poche funzioni di
    sistema che il gioco usa (circa 20) — niente ROM Kickstart;
 4. emula solo i chip custom che il gioco tocca davvero: copper, blitter,
-   bitplane, palette, mouse (e in seguito l'audio).
+   bitplane, sprite, palette, mouse, tastiera (e in seguito l'audio).
 
 I dettagli sono in [docs/architettura.md](docs/architettura.md); l'analisi dei
 due eseguibili originali (Amiga e DOS) in [docs/analisi.md](docs/analisi.md).
 
 ## Compilare ed eseguire (Windows)
 
-Serve Rust (https://rustup.rs). Poi, dalla cartella del progetto:
+Serve Rust (https://rustup.rs). Dalla cartella del progetto:
 
 ```
 cargo build --release
@@ -44,23 +44,34 @@ cargo build --release
 
 Copia le due immagini ADF originali di Mad TV nella cartella `adf\` (i nomi
 dei file non contano: i dischi vengono riconosciuti dal nome di volume, MTV1 e
-MTV2). Poi:
+MTV2). Poi avvia il gioco:
 
 ```
-target\release\madtv.exe --frames 3000 --shot-every 250
+target\release\madtv.exe
 ```
 
-Gli screenshot finiscono nella cartella `shots\`. Opzioni utili:
+Il caricamento iniziale viene accelerato automaticamente (schermo nero per
+pochi secondi). Comandi:
+
+| Tasto | Effetto |
+|---|---|
+| mouse | il puntatore del gioco segue quello del PC |
+| tastiera | come su un Amiga (nomi dei giocatori, ecc.) |
+| F11 (tenuto premuto) | avanti veloce |
+| F12 | screenshot nella cartella `shots\` |
+
+Opzioni utili (`madtv --help` per l'elenco completo):
 
 | Opzione | Effetto |
 |---|---|
-| `--frames N` | quanti frame PAL eseguire (50 = 1 secondo di gioco) |
-| `--shot-every N` | uno screenshot ogni N frame |
+| `--scale N` | ingrandimento della finestra (default 3, cioè 960×768) |
+| `--headless --frames N` | nessuna finestra: esegue N frame (50 = 1 secondo) e salva `shots\final.png` |
+| `--script "1290:goto 55 101; 1320:click; 2000:shot capo"` | azioni automatiche a frame stabiliti (anche da file: `--script @scripts\nuova-partita.txt`) |
 | `--trace trace.log` | registra ogni chiamata di sistema del gioco |
 | `--dump ram.bin` | salva la RAM emulata alla fine (per l'analisi con un disassembler) |
-| `--list` | elenca i file dei dischi |
 
-`madtv --help` mostra l'elenco completo.
+I salvataggi del gioco finiscono nella cartella `save\`; gli ADF originali non
+vengono mai modificati.
 
 ## Test
 
@@ -76,10 +87,23 @@ src/
   hunk.rs       caricatore degli eseguibili AmigaOS
   bus.rs        memoria e mappa degli indirizzi
   custom.rs     chip custom: copper, blitter, interrupt, mouse, CIA
-  render.rs     da copper list e bitplane a immagine
+  render.rs     display riga per riga: bitplane e sprite
+  input.rs      mouse, tastiera, script di azioni automatiche
+  window.rs     finestra (minifb), 50 frame al secondo
   machine.rs    CPU + bus + sistema operativo; ciclo principale
   os/           AmigaOS emulato: exec, dos, graphics, intuition, file system virtuale
   main.rs       programma a riga di comando
 docs/           documentazione tecnica
+scripts/        esempi di script di azioni
 NOTES.md        stato del lavoro e prossimi passi
 ```
+
+## Licenza
+
+Il codice di questo progetto è distribuito con licenza
+[GNU GPL versione 3 o successiva](LICENSE).
+
+La licenza copre solo il codice scritto per il porting (emulatore, sistema
+operativo emulato, strumenti). Mad TV, con la sua grafica, i testi, la musica e
+il codice originale, appartiene ai rispettivi titolari dei diritti (Rainbow
+Arts) e non è incluso nel repository.
