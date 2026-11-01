@@ -158,16 +158,25 @@ Hardware usato direttamente:
 - Il gioco non abilita gli interrupt audio (INTENA = `$603C`), quindi gli
   interrupt AUD0-3 di Paula vengono generati ma non serviti; il livello 4 resta
   comunque gestito.
-- Il silenzio sulla schermata di selezione dei giocatori è da verificare in
-  WinUAE: l'audio parte dopo "New game".
+- Il silenzio sulla schermata di selezione dei giocatori è fedele: confermato
+  in WinUAE (anche l'originale non ha musica nel menu iniziale).
 - Strumenti: `--headless --wav FILE` registra l'audio; il rapporto finale mostra
   lo stato dei canali; `cargo run --release --example audio_check` verifica il
   dispositivo audio.
 
+## Confronto con WinUAE (1 novembre 2026)
+
+Configurazione che funziona: A500, KS 1.3 rev 34.5, 1 MB Chip + 512 KB Slow,
+disco 1 in DF0 e disco 2 in DF1. Con Quickstart scelto prima della scansione
+delle ROM, WinUAE mostrava solo uno schermo nero. L'originale mostra, prima del
+gioco, il logo Rainbow Arts (`rai`) e una schermata con i credits (`v u3.lbm`),
+che il porting per ora salta. Schermata del palinsesto e menu muto coincidono.
+
 ## Prossimi passi
 
-1. Conferma all'ascolto (Pam, su Windows) e confronto con WinUAE.
-2. Intro originale: `rai` (logo Rainbow Arts) e `v u3.lbm` prima del gioco.
+1. Conferma all'ascolto (Pam, su Windows).
+2. Intro originale: `rai` (logo Rainbow Arts) e la schermata dei credits
+   `u3.lbm` (immagine IFF mostrata dal visualizzatore `v`) prima del gioco.
 3. Pulizia: limiti noti del renderer (priorità sprite, scroll fine) se
    qualche schermata ne ha bisogno.
 4. Fase successiva, quando si vorrà: riscrittura in Rust delle funzioni del
