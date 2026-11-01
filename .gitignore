@@ -1,0 +1,15 @@
+/target
+
+# File del gioco originale: non vanno mai nel repository
+/adf/
+*.adf
+*.ADF
+
+# Kickstart (protette da copyright)
+*.rom
+
+# Output dell'emulatore
+/save/
+/shots/
+*.log
+ram.bin

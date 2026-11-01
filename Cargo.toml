@@ -1,0 +1,10 @@
+[package]
+name = "madtv"
+version = "0.1.0"
+edition = "2024"
+description = "Porting Rust di Mad TV (Rainbow Arts, 1991) dalla versione Amiga"
+repository = "https://github.com/katkase/madtv"
+
+[dependencies]
+m68k = "0.15.1"
+png = "0.18.1"
