@@ -22,7 +22,8 @@ scoperte, decisioni e prossimi passi. Va aggiornato alla fine di ogni sessione.
 - Fase 2: renderer riga per riga, sprite, finestra, mouse, tastiera, script.
 - Correzioni dopo la prova di Pam su Windows: puntatore che sfarfallava
   (soprattutto ai bordi), ritardo nell'apertura delle finestre del gioco,
-  puntatore che saltava sulle zone con etichetta al passaggio del mouse.
+  puntatore che saltava sulle zone con etichetta al passaggio del mouse,
+  animazioni troppo veloci con la CPU al 300% (da cui il turbo automatico).
 
 ## Versione dei dischi
 
@@ -83,16 +84,25 @@ Hardware usato direttamente:
   Strumenti di misura: `cargo run --release --example mouse_lab` e
   `CLICKS=3 SPEED=3 cargo run --release --example mouse_sweep` (scorrimento
   sopra le porte dell'edificio, con le etichette al passaggio del mouse).
-- **Velocità**: le transizioni (apertura di finestre, cambi di schermata) sono
-  limitate dalla CPU, non dal disco. Misure dal click su "New game":
-  primo cambiamento dopo 4,3 s e capo dopo 12,2 s con la CPU al 100%;
-  1,5 s e 4 s al 300%. L'orologio del gioco avanza di 10 minuti ogni 1.000
-  frame a entrambe le velocità: il tempo di gioco è scandito dagli interrupt di
-  frame, quindi accelerare la CPU non altera il gameplay. Default: 300% nella
-  finestra (F10 per passare al 100%), 100% in headless per gli script.
-- **Tastiera**: il gioco legge la CIA-A SDR nel suo interrupt e reagisce ai
-  cambiamenti del valore (nessun handshake necessario). Invio conferma i
-  campi di testo.
+- **Velocità**: le transizioni (apertura di stanze, cambi di schermata) sono
+  limitate dalla CPU, perché dopo aver letto i file il gioco li decomprime.
+  Alcune animazioni invece sono temporizzate dalla CPU (non dal frame): con
+  la CPU al 300% fissa "vanno a razzo" (segnalato da Pam). Soluzione:
+  **turbo automatico** (`--cpu-speed auto`, default nella finestra): CPU al
+  100% di norma, al 400% dopo ogni Open/Read del dos, finché il gioco non
+  torna a chiamare la sua funzione che legge il contatore dei frame
+  (`$0434FC`, offset `$40364` del segmento 1: restituisce la word a
+  `$0456E0`, incrementata dall'interrupt). Misure dal click su "New game":
+
+  | | primo cambiamento | capo | animazione dell'edificio |
+  |---|---|---|---|
+  | 100% | 4,3 s | 12,2 s | 100 frame |
+  | 300% fissa | 1,5 s | 4 s | accelerata |
+  | auto | 1,4 s | 6,4 s | 100 frame (come l'originale) |
+
+  L'orologio del gioco è scandito dagli interrupt di frame: avanza di 10
+  minuti ogni 1.000 frame a qualunque velocità della CPU. In headless la
+  velocità resta 100% fissa, per avere script riproducibili.
 
 ## Bug trovati e risolti in fase 1 (utili per il futuro)
 

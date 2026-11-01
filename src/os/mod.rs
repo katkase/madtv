@@ -246,6 +246,8 @@ pub struct Os {
     pub pending_frames: u64,
     /// Eccezione inattesa (numero di vettore), se si è verificata.
     pub exception: Option<u8>,
+    /// Numero di Open/Read eseguiti (usato dal turbo automatico).
+    pub disk_activity: u64,
 }
 
 impl Os {
@@ -279,6 +281,7 @@ impl Os {
             pending_delay: 0,
             pending_frames: 0,
             exception: None,
+            disk_activity: 0,
         }
     }
 
@@ -359,7 +362,12 @@ impl Os {
         let caller = ctx.bus.peek32(ctx.a(7));
         let handled = match lib {
             LibId::Exec => exec::call(self, ctx, idx),
-            LibId::Dos => dos::call(self, ctx, idx),
+            LibId::Dos => {
+                if idx == 0 || idx == 2 {
+                    self.disk_activity += 1; // Open o Read
+                }
+                dos::call(self, ctx, idx)
+            }
             LibId::Intuition => intuition::call(self, ctx, idx),
             LibId::Graphics => graphics::call(self, ctx, idx),
             LibId::Icon => None,

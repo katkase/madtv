@@ -51,16 +51,16 @@ target\release\madtv.exe
 ```
 
 Il caricamento iniziale viene accelerato automaticamente (schermo nero per
-pochi secondi). Nella finestra la CPU emulata va al 300% di un A500: aperture
-di finestre e cambi di schermata sono circa tre volte più rapidi
-dell'originale, mentre il ritmo del gioco (orologio, eventi) resta identico.
-Comandi:
+pochi secondi). Nella finestra la CPU emulata ha la velocità di un A500, con un
+**turbo automatico** durante i caricamenti dal disco: cambi di schermata e
+aperture delle stanze sono più rapidi, mentre animazioni e ritmo del gioco
+restano quelli originali. Comandi:
 
 | Tasto | Effetto |
 |---|---|
 | mouse | il puntatore del gioco segue quello del PC |
 | tastiera | come su un Amiga (nomi dei giocatori, ecc.) |
-| F10 | CPU veloce (default) / CPU originale dell'A500 |
+| F10 | turbo automatico sì (default) / no |
 | F11 (tenuto premuto) | avanti veloce |
 | F12 | screenshot nella cartella `shots\` |
 
@@ -69,7 +69,7 @@ Opzioni utili (`madtv --help` per l'elenco completo):
 | Opzione | Effetto |
 |---|---|
 | `--scale N` | ingrandimento della finestra (default 3, cioè 960×768) |
-| `--cpu-speed P` | velocità della CPU in % di un A500 (default 300 nella finestra) |
+| `--cpu-speed P` | velocità della CPU: `auto` (default nella finestra) o una percentuale fissa di un A500, es. `300` |
 | `--headless --frames N` | nessuna finestra: esegue N frame (50 = 1 secondo) e salva `shots\final.png` |
 | `--script "1290:goto 55 101; 1320:click; 2000:shot capo"` | azioni automatiche a frame stabiliti (anche da file: `--script @scripts\nuova-partita.txt`) |
 | `--trace trace.log` | registra ogni chiamata di sistema del gioco |

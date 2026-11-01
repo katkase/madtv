@@ -57,6 +57,20 @@ pub struct Machine {
     /// interrupt di frame) non cambia.
     pub cpu_speed: u32,
     cycle_acc: u64,
+    /// Turbo automatico: la CPU va a `turbo_speed` dopo una lettura dal disco,
+    /// finché il gioco non torna a sincronizzarsi sul contatore dei frame
+    /// (chiamata della sua funzione a `pacing_pc`). Così caricamenti e
+    /// decompressioni sono rapidi, mentre le animazioni (alcune temporizzate
+    /// dalla CPU) restano alla velocità originale.
+    pub auto_turbo: bool,
+    pub turbo_speed: u32,
+    pub turbo_active: bool,
+    last_disk_activity: u64,
+    /// Indirizzo della funzione del gioco che legge il contatore dei frame.
+    pub pacing_pc: u32,
+    /// Statistiche: frame passati in turbo, chiamate al contatore dei frame.
+    pub turbo_frames: u64,
+    pub pacing_calls: u64,
     /// Ultimi PC eseguiti (diagnostica in caso di errore).
     pub pc_history: [u32; 64],
     pub pc_hist_pos: usize,
@@ -83,6 +97,13 @@ impl Machine {
             segments: Vec::new(),
             cpu_speed: 100,
             cycle_acc: 0,
+            auto_turbo: false,
+            turbo_speed: 400,
+            turbo_active: false,
+            last_disk_activity: 0,
+            pacing_pc: 0,
+            turbo_frames: 0,
+            pacing_calls: 0,
             pc_history: [0; 64],
             pc_hist_pos: 0,
         }
@@ -194,6 +215,11 @@ impl Machine {
             }
         }
         self.seglist = (blocks[0] + 4) >> 2;
+        // Funzione del gioco che restituisce il contatore dei frame (offset nel
+        // codice decompresso, segmento 1): vedi NOTES.md, "Velocità".
+        if blocks.len() > 1 {
+            self.pacing_pc = blocks[1] + 8 + 0x40364;
+        }
         self.entry = blocks[0] + 8;
 
         // CLI: nome del comando e seglist.
@@ -307,6 +333,9 @@ impl Machine {
     /// Esegue un frame completo (fino al prossimo vertical blank).
     /// Restituisce None se il frame è terminato normalmente.
     pub fn run_frame(&mut self) -> Option<StopReason> {
+        if self.auto_turbo && self.turbo_active {
+            self.turbo_frames += 1;
+        }
         let target = self.bus.custom.frame + 1;
         match self.run(u64::MAX, target) {
             StopReason::FrameLimit => None,
@@ -328,6 +357,14 @@ impl Machine {
             let lvl = self.irq_level();
             self.cpu.set_irq(lvl);
             self.instructions += 1;
+            if self.cpu.pc == self.pacing_pc {
+                self.pacing_calls += 1;
+                self.turbo_active = false;
+            }
+            if self.os.disk_activity != self.last_disk_activity {
+                self.last_disk_activity = self.os.disk_activity;
+                self.turbo_active = true;
+            }
             self.pc_history[self.pc_hist_pos & 63] = self.cpu.pc;
             self.pc_hist_pos += 1;
             let r = self.cpu.step(&mut self.bus);
@@ -409,9 +446,15 @@ impl Machine {
                 extra = to_next + (frames - 1) * FRAME_CYCLES;
             }
             // Con una CPU più veloce, ogni istruzione consuma meno tempo del chipset.
+            let speed = if self.auto_turbo && self.turbo_active {
+                self.turbo_speed.max(self.cpu_speed)
+            } else {
+                self.cpu_speed
+            }
+            .max(1) as u64;
             self.cycle_acc += cycles * 100;
-            let chip_cycles = self.cycle_acc / self.cpu_speed.max(1) as u64;
-            self.cycle_acc %= self.cpu_speed.max(1) as u64;
+            let chip_cycles = self.cycle_acc / speed;
+            self.cycle_acc %= speed;
             self.bus
                 .custom
                 .advance(chip_cycles + extra, &mut self.bus.ram);

@@ -15,7 +15,7 @@ Mad TV - porting Rust della versione Amiga
 
 USO: madtv [opzioni]
 
-Di default apre la finestra di gioco (F10 = CPU originale/veloce,
+Di default apre la finestra di gioco (F10 = turbo automatico sì/no,
 F11 tenuto premuto = avanti veloce, F12 = screenshot).
 
   --adf-dir DIR      cartella con le immagini ADF originali (default: adf)
@@ -23,9 +23,10 @@ F11 tenuto premuto = avanti veloce, F12 = screenshot).
   --save-dir DIR     cartella per i salvataggi del gioco (default: save)
   --scale N          ingrandimento della finestra (default: 3)
   --mouse-ratio R    conteggi del mouse Amiga per pixel (default: 1.0)
-  --cpu-speed P      velocità della CPU in % di un A500 (default: 300 con la
-                     finestra, 100 in headless). Il ritmo del gioco non cambia:
-                     si accorciano solo le attese di calcolo e disegno.
+  --cpu-speed P      velocità della CPU in % di un A500, oppure auto
+                     (default: auto con la finestra, 100 in headless).
+                     auto = velocità originale, con turbo durante caricamenti e
+                     decompressioni dal disco.
   --headless         nessuna finestra: esegue --frames frame e salva screenshot
   --frames N         (headless) frame PAL da eseguire, 50 = 1 secondo (default: 500)
   --max-instr N      (headless) limite di istruzioni 68000
@@ -50,7 +51,7 @@ struct Opts {
     save_dir: PathBuf,
     scale: usize,
     mouse_ratio: f32,
-    cpu_speed: Option<u32>,
+    cpu_speed: Option<String>,
     headless: bool,
     frames: u64,
     max_instr: u64,
@@ -88,7 +89,7 @@ fn parse_args() -> Result<Opts, String> {
             "--scale" => o.scale = val()?.parse().map_err(|e| format!("{e}"))?,
             "--mouse-ratio" => o.mouse_ratio = val()?.parse().map_err(|e| format!("{e}"))?,
             "--headless" => o.headless = true,
-            "--cpu-speed" => o.cpu_speed = Some(val()?.parse().map_err(|e| format!("{e}"))?),
+            "--cpu-speed" => o.cpu_speed = Some(val()?),
             "--frames" => o.frames = val()?.parse().map_err(|e| format!("{e}"))?,
             "--max-instr" => o.max_instr = val()?.parse().map_err(|e| format!("{e}"))?,
             "--trace" => o.trace = Some(val()?.into()),
@@ -192,10 +193,25 @@ fn main() {
         let f = std::fs::File::create(t).expect("impossibile creare il file di trace");
         m.os.trace = Some(std::io::BufWriter::new(f));
     }
-    m.cpu_speed = o
-        .cpu_speed
-        .unwrap_or(if o.headless { 100 } else { 300 })
-        .clamp(25, 2000);
+    let speed = o.cpu_speed.clone().unwrap_or_else(|| {
+        if o.headless {
+            "100".into()
+        } else {
+            "auto".into()
+        }
+    });
+    if speed.eq_ignore_ascii_case("auto") {
+        m.cpu_speed = 100;
+        m.auto_turbo = true;
+    } else {
+        match speed.parse::<u32>() {
+            Ok(v) => m.cpu_speed = v.clamp(25, 2000),
+            Err(_) => {
+                eprintln!("errore: --cpu-speed vuole un numero o auto");
+                std::process::exit(2);
+            }
+        }
+    }
     m.boot_os();
     // La startup-sequence originale lancia "mtv s".
     m.load_executable(&exe, "s").expect("eseguibile non valido");
@@ -250,6 +266,12 @@ fn main() {
         println!("  {}", r.join(" "));
         let r: Vec<String> = (0..8).map(|i| format!("a{i}={:08x}", m.cpu.a(i))).collect();
         println!("  {}", r.join(" "));
+    }
+    if m.auto_turbo {
+        println!(
+            "turbo automatico: {} frame in turbo, {} chiamate al contatore dei frame",
+            m.turbo_frames, m.pacing_calls
+        );
     }
     report(&m);
     if let Some(d) = &o.dump {

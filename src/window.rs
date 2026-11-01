@@ -1,6 +1,6 @@
 //! Finestra di gioco (crate `minifb`): 50 frame al secondo, mouse e tastiera.
 //!
-//! Tasti speciali: F10 = CPU originale/veloce, F11 (tenuto premuto) = avanti
+//! Tasti speciali: F10 = turbo automatico sì/no, F11 (tenuto premuto) = avanti
 //! veloce, F12 = screenshot.
 //!
 //! Il gioco disegna da sé il puntatore del mouse, quindi il cursore di sistema
@@ -37,7 +37,6 @@ pub fn run(m: &mut Machine, o: &WindowOpts) -> Option<StopReason> {
     win.set_cursor_visibility(false);
     let mut buf = vec![0u32; w * h];
     let mut last_pos: Option<(f32, f32)> = None;
-    let fast_speed = if m.cpu_speed > 100 { m.cpu_speed } else { 300 };
     let mut shots = 0u32;
 
     while win.is_open() {
@@ -79,9 +78,13 @@ pub fn run(m: &mut Machine, o: &WindowOpts) -> Option<StopReason> {
         );
         for k in win.get_keys_pressed(KeyRepeat::No) {
             if k == Key::F10 {
-                // CPU originale (A500) o veloce: cambia solo la rapidità di calcolo e disegno.
-                m.cpu_speed = if m.cpu_speed > 100 { 100 } else { fast_speed };
-                println!("velocità CPU: {}%", m.cpu_speed);
+                // Turbo automatico (default) oppure velocità sempre fissa.
+                m.auto_turbo = !m.auto_turbo;
+                if m.auto_turbo {
+                    println!("CPU: turbo automatico durante i caricamenti");
+                } else {
+                    println!("CPU: velocità fissa {}%", m.cpu_speed);
+                }
                 continue;
             }
             if k == Key::F12 {

@@ -149,7 +149,12 @@ anche gli accumulatori e i limiti del puntatore della schermata corrente
 corrispondono a un ciclo della CPU: al 300% la CPU esegue tre volte più
 istruzioni per frame. Il gioco scandisce il proprio tempo con l'interrupt di
 frame, quindi il ritmo di gioco non cambia: si accorciano solo le attese di
-calcolo (decompressione e disegno delle schermate).
+calcolo (decompressione e disegno delle schermate). Alcune animazioni però sono
+temporizzate dalla CPU e accelererebbero anch'esse; per questo nella finestra si
+usa il **turbo automatico** (`Machine::auto_turbo`): CPU al 100%, che sale a
+`turbo_speed` dopo ogni Open/Read del dos e torna normale appena il gioco
+chiama la propria funzione che legge il contatore dei frame
+(`Machine::pacing_pc`), cioè quando ricomincia a sincronizzarsi sul tempo.
 
 ### Script di azioni
 
