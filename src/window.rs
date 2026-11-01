@@ -11,7 +11,7 @@
 
 use crate::input;
 use crate::machine::{Machine, StopReason};
-use crate::render::{self, HEIGHT, WIDTH};
+use crate::render::WIDTH;
 use minifb::{Key, KeyRepeat, MouseButton, MouseMode, Window, WindowOptions};
 use std::path::PathBuf;
 
@@ -25,7 +25,8 @@ pub struct WindowOpts {
 /// Esegue il gioco in una finestra finché non viene chiusa o il programma termina.
 pub fn run(m: &mut Machine, o: &WindowOpts) -> Option<StopReason> {
     let s = o.scale.max(1);
-    let (w, h) = (WIDTH * s, HEIGHT * s);
+    let rows = m.bus.custom.display.visible_rows;
+    let (w, h) = (WIDTH * s, rows * s);
     let mut win = match Window::new("Mad TV", w, h, WindowOptions::default()) {
         Ok(w) => w,
         Err(e) => {
@@ -38,6 +39,7 @@ pub fn run(m: &mut Machine, o: &WindowOpts) -> Option<StopReason> {
     let mut buf = vec![0u32; w * h];
     let mut last_pos: Option<(f32, f32)> = None;
     let mut shots = 0u32;
+    let mut warned_rows = false;
 
     while win.is_open() {
         // --- input ---
@@ -91,7 +93,7 @@ pub fn run(m: &mut Machine, o: &WindowOpts) -> Option<StopReason> {
                 std::fs::create_dir_all(&o.shot_dir).ok();
                 shots += 1;
                 let p = o.shot_dir.join(format!("screenshot{shots:03}.png"));
-                if render::save_png(&m.bus.custom.display.front, &p).is_ok() {
+                if m.bus.custom.display.save_png(&p).is_ok() {
                     println!("screenshot: {}", p.display());
                 }
                 continue;
@@ -123,9 +125,21 @@ pub fn run(m: &mut Machine, o: &WindowOpts) -> Option<StopReason> {
             }
         }
 
+        // Se una schermata disegnasse oltre le righe mostrate, avvisa una volta.
+        if !warned_rows {
+            if let Some((_, last)) = m.bus.custom.display.used_rows {
+                if last >= rows {
+                    eprintln!(
+                        "nota: il gioco ha disegnato oltre la riga {rows}; avvia con --full-height per vederla"
+                    );
+                    warned_rows = true;
+                }
+            }
+        }
+
         // --- presentazione (ingrandimento a pixel interi) ---
         let src = &m.bus.custom.display.front;
-        for y in 0..HEIGHT {
+        for y in 0..rows {
             let srow = &src[y * WIDTH..(y + 1) * WIDTH];
             let drow = &mut buf[y * s * w..(y * s + 1) * w];
             for (x, &p) in srow.iter().enumerate() {

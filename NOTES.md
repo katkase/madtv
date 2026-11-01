@@ -5,8 +5,9 @@ scoperte, decisioni e prossimi passi. Va aggiornato alla fine di ogni sessione.
 
 ## Stato attuale (fine fase 2, 1 novembre 2026)
 
-- **Giocabile in una finestra** (minifb, 50 Hz, scala 3 di default), con mouse
-  e tastiera. Provato via script: nuova partita, vista dell'edificio, dialoghi
+- **Giocabile in una finestra** (minifb, 50 Hz, 960×600 di default), con mouse
+  e tastiera: confermato da Pam su Windows con una partita vera (palinsesto,
+  programmi in onda, orologio). Provato via script: nuova partita, vista dell'edificio, dialoghi
   del capo, modifica dei nomi dei giocatori con la tastiera.
 - Il caricamento iniziale (circa 25 s a velocità reale) viene accelerato in
   automatico finché lo schermo è nero; F11 tenuto premuto = avanti veloce.
@@ -132,6 +133,10 @@ Hardware usato direttamente:
   `v u3.lbm` (visualizzatore IFF): per ora eseguiamo solo `mtv s`.
 - Delay() salta i frame in un colpo solo.
 - La finestra non è ridimensionabile (scala fissa scelta all'avvio).
+- Altezza: la finestra e gli screenshot mostrano 200 righe (320×200), le sole
+  che il gioco usa in tutte le schermate provate (DIWSTRT/DIWSTOP $2C-$F4);
+  `--full-height` mostra le 256 righe PAL. Se il gioco disegnasse oltre, la
+  finestra lo segnala in console.
 
 ## Prossimi passi (fase 3: audio)
 

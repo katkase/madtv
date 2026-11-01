@@ -68,7 +68,8 @@ Opzioni utili (`madtv --help` per l'elenco completo):
 
 | Opzione | Effetto |
 |---|---|
-| `--scale N` | ingrandimento della finestra (default 3, cioè 960×768) |
+| `--scale N` | ingrandimento della finestra (default 3, cioè 960×600) |
+| `--full-height` | mostra tutte le 256 righe PAL invece delle 200 usate dal gioco |
 | `--cpu-speed P` | velocità della CPU: `auto` (default nella finestra) o una percentuale fissa di un A500, es. `300` |
 | `--headless --frames N` | nessuna finestra: esegue N frame (50 = 1 secondo) e salva `shots\final.png` |
 | `--script "1290:goto 55 101; 1320:click; 2000:shot capo"` | azioni automatiche a frame stabiliti (anche da file: `--script @scripts\nuova-partita.txt`) |

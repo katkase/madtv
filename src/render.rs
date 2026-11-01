@@ -8,7 +8,8 @@
 //!   puntatore a metà schermo funzionano senza casi speciali;
 //! - converte i pixel con la palette in vigore in quel momento.
 //!
-//! L'immagine è 320×256 (risoluzione lores, righe PAL da $2C a $12B). Le righe
+//! L'immagine è 320×256 (risoluzione lores, righe PAL da $2C a $12B); di
+//! default se ne mostrano le prime 200, le sole che Mad TV usa. Le righe
 //! hires vengono ridotte prendendo un pixel ogni due (Mad TV è tutto lores).
 //! Sprite: gli 8 sprite hardware sono letti via DMA (POS/CTL e coppie di
 //! parole dati) e disegnati sopra il playfield, anche collegati a 15 colori.
@@ -17,6 +18,9 @@
 
 pub const WIDTH: usize = 320;
 pub const HEIGHT: usize = 256;
+/// Righe mostrate di default: Mad TV usa una finestra video di 200 righe
+/// (DIWSTRT/DIWSTOP da $2C a $F4) in tutte le schermate; le altre sono nere.
+pub const GAME_HEIGHT: usize = 200;
 /// Prima riga PAL mostrata (il valore standard di DIWSTRT).
 pub const FIRST_LINE: u32 = 0x2C;
 
@@ -50,6 +54,11 @@ pub struct Display {
     planes: u8,
     pub ham_seen: bool,
     pub hires_seen: bool,
+    /// Prima e ultima riga dell'immagine (0..256) in cui c'è stato qualcosa da
+    /// disegnare (bitplane attivi), su tutta la sessione.
+    pub used_rows: Option<(usize, usize)>,
+    /// Righe da mostrare e salvare negli screenshot (200 o 256).
+    pub visible_rows: usize,
 }
 
 impl Default for Display {
@@ -71,6 +80,8 @@ impl Display {
             planes: 0,
             ham_seen: false,
             hires_seen: false,
+            used_rows: None,
+            visible_rows: GAME_HEIGHT,
         }
     }
 
@@ -270,6 +281,11 @@ impl Display {
 
         let Some(r) = row else { return };
         self.active_lines += 1;
+        let ry = r / WIDTH;
+        self.used_rows = Some(match self.used_rows {
+            Some((a, b)) => (a.min(ry), b.max(ry)),
+            None => (ry, ry),
+        });
         self.planes = self.planes.max(planes as u8);
 
         let mut palette = [0u32; 64];
@@ -328,7 +344,14 @@ fn rgb12(v: u16) -> u32 {
     (r << 16) | (g << 8) | b
 }
 
-/// Salva un frame (0x00RRGGBB) in PNG.
+impl Display {
+    /// Salva l'ultimo frame completo in PNG (solo le righe visibili).
+    pub fn save_png(&self, path: &std::path::Path) -> std::io::Result<()> {
+        save_png(&self.front[..WIDTH * self.visible_rows], path)
+    }
+}
+
+/// Salva un'immagine larga WIDTH pixel (0x00RRGGBB) in PNG.
 pub fn save_png(pixels: &[u32], path: &std::path::Path) -> std::io::Result<()> {
     let mut rgb = Vec::with_capacity(pixels.len() * 3);
     for p in pixels {
@@ -336,7 +359,7 @@ pub fn save_png(pixels: &[u32], path: &std::path::Path) -> std::io::Result<()> {
     }
     let file = std::fs::File::create(path)?;
     let w = std::io::BufWriter::new(file);
-    let mut enc = png::Encoder::new(w, WIDTH as u32, HEIGHT as u32);
+    let mut enc = png::Encoder::new(w, WIDTH as u32, (pixels.len() / WIDTH) as u32);
     enc.set_color(png::ColorType::Rgb);
     enc.set_depth(png::BitDepth::Eight);
     let mut writer = enc.write_header().map_err(std::io::Error::other)?;

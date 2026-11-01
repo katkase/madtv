@@ -64,18 +64,21 @@ fn main() {
             go(&mut m, (150, 60), 120);
             if !naive {
                 let p = format!("/tmp/seq{i}.png");
-                madtv::render::save_png(&m.bus.custom.display.front, std::path::Path::new(&p))
+                m.bus
+                    .custom
+                    .display
+                    .save_png(std::path::Path::new(&p))
                     .unwrap();
             }
             click(&mut m);
         }
         go(&mut m, (10, 40), 60);
         if !naive {
-            madtv::render::save_png(
-                &m.bus.custom.display.front,
-                std::path::Path::new("/tmp/sweep_start.png"),
-            )
-            .unwrap();
+            m.bus
+                .custom
+                .display
+                .save_png(std::path::Path::new("/tmp/sweep_start.png"))
+                .unwrap();
         }
         let (mut jumps, mut maxover) = (0, 0);
         let (mut busy, mut busy_run) = (0, 0);
@@ -108,7 +111,10 @@ fn main() {
             }
             if !naive && (f == 60 || f == 130 || f == 400) {
                 let p = format!("/tmp/sweep{f}.png");
-                madtv::render::save_png(&m.bus.custom.display.front, std::path::Path::new(&p))
+                m.bus
+                    .custom
+                    .display
+                    .save_png(std::path::Path::new(&p))
                     .unwrap();
             }
             let d = if naive {

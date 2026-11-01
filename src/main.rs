@@ -22,6 +22,7 @@ F11 tenuto premuto = avanti veloce, F12 = screenshot).
                      i dischi vengono riconosciuti dal nome di volume (MTV1, MTV2)
   --save-dir DIR     cartella per i salvataggi del gioco (default: save)
   --scale N          ingrandimento della finestra (default: 3)
+  --full-height      mostra tutte le 256 righe PAL (default: le 200 usate dal gioco)
   --mouse-ratio R    conteggi del mouse Amiga per pixel (default: 1.0)
   --cpu-speed P      velocità della CPU in % di un A500, oppure auto
                      (default: auto con la finestra, 100 in headless).
@@ -50,6 +51,7 @@ struct Opts {
     adf_dir: PathBuf,
     save_dir: PathBuf,
     scale: usize,
+    full_height: bool,
     mouse_ratio: f32,
     cpu_speed: Option<String>,
     headless: bool,
@@ -68,6 +70,7 @@ fn parse_args() -> Result<Opts, String> {
         adf_dir: "adf".into(),
         save_dir: "save".into(),
         scale: 3,
+        full_height: false,
         mouse_ratio: 1.0,
         cpu_speed: None,
         headless: false,
@@ -89,6 +92,7 @@ fn parse_args() -> Result<Opts, String> {
             "--scale" => o.scale = val()?.parse().map_err(|e| format!("{e}"))?,
             "--mouse-ratio" => o.mouse_ratio = val()?.parse().map_err(|e| format!("{e}"))?,
             "--headless" => o.headless = true,
+            "--full-height" => o.full_height = true,
             "--cpu-speed" => o.cpu_speed = Some(val()?),
             "--frames" => o.frames = val()?.parse().map_err(|e| format!("{e}"))?,
             "--max-instr" => o.max_instr = val()?.parse().map_err(|e| format!("{e}"))?,
@@ -212,6 +216,9 @@ fn main() {
             }
         }
     }
+    if o.full_height {
+        m.bus.custom.display.visible_rows = render::HEIGHT;
+    }
     m.boot_os();
     // La startup-sequence originale lancia "mtv s".
     m.load_executable(&exe, "s").expect("eseguibile non valido");
@@ -282,12 +289,13 @@ fn main() {
         std::fs::create_dir_all(&o.shot_dir).ok();
         let p = o.shot_dir.join("final.png");
         let d = &m.bus.custom.display;
-        match render::save_png(&d.front, &p) {
+        match d.save_png(&p) {
             Ok(()) => println!(
-                "schermata finale: {} ({} bitplane, {} righe attive)",
+                "schermata finale: {} ({} bitplane, {} righe attive; righe usate nella sessione: {:?})",
                 p.display(),
                 d.last_planes,
-                d.last_active_lines
+                d.last_active_lines,
+                d.used_rows
             ),
             Err(e) => println!("impossibile salvare lo screenshot: {e}"),
         }
@@ -324,7 +332,7 @@ fn apply_actions(m: &mut Machine, o: &Opts, next: &mut usize, target: &mut Optio
             Action::Shot(name) => {
                 std::fs::create_dir_all(&o.shot_dir).ok();
                 let p = o.shot_dir.join(format!("{name}.png"));
-                let _ = render::save_png(&c.display.front, &p);
+                let _ = c.display.save_png(&p);
                 println!("[frame {frame}] screenshot {}", p.display());
             }
             Action::Click | Action::Key(_) | Action::Type(_) => {} // già espanse
@@ -363,10 +371,11 @@ fn run_headless(m: &mut Machine, o: &Opts) -> StopReason {
         let f = m.bus.custom.frame;
         if o.shot_every > 0 && f.is_multiple_of(o.shot_every) {
             std::fs::create_dir_all(&o.shot_dir).ok();
-            let _ = render::save_png(
-                &m.bus.custom.display.front,
-                &o.shot_dir.join(format!("frame{f:05}.png")),
-            );
+            let _ = m
+                .bus
+                .custom
+                .display
+                .save_png(&o.shot_dir.join(format!("frame{f:05}.png")));
         }
     }
 }
