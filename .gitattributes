@@ -1,0 +1,7 @@
+# Fine riga coerenti tra Windows e Linux; immagini sempre binarie
+* text=auto
+*.rs text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+*.png binary
+*.adf binary
