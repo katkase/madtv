@@ -171,6 +171,29 @@ configurabile), 50 frame al secondo. Il cursore del PC è nascosto perché il
 puntatore lo disegna il gioco. Avanti veloce automatico finché lo schermo è nero
 (caricamento) e con F11; F12 salva uno screenshot.
 
+## Audio
+
+`paula.rs` emula i 4 canali di Paula. Per ogni canale: registri AUDxLC,
+AUDxLEN, AUDxPER, AUDxVOL, AUDxDAT; all'accensione del DMA (DMACON) il canale
+carica puntatore e lunghezza, legge la prima parola e segnala l'interrupt
+(il programma può già preparare il blocco successivo); a fine blocco ricarica
+dai registri e segnala di nuovo. Ogni campione da 8 bit dura AUDxPER cicli del
+clock audio (3,546895 MHz, metà del clock della CPU): il tempo è quello del
+chipset, quindi l'intonazione non dipende dalla velocità della CPU emulata.
+
+Il mixaggio segue l'hardware (canali 0 e 3 a sinistra, 1 e 2 a destra). Il
+ricampionamento alla frequenza della scheda audio integra l'uscita su ogni
+intervallo (media mobile), poi vengono applicati il passa-basso fisso
+dell'A500 (circa 4,4 kHz) e, se il programma lo accende tramite il bit 1 della
+CIA-A PRA, il filtro "LED" (circa 3,3 kHz, 12 dB/ottava).
+
+`audio.rs` apre il dispositivo predefinito con `cpal` e accoda i campioni in un
+buffer condiviso con il callback della scheda. La finestra emula un frame solo
+quando in coda restano meno di 3 frame di audio (60 ms): è la scheda audio a
+dettare il ritmo, così non si accumulano né buchi né ritardo. Durante l'avanti
+veloce l'audio viene scartato. Senza dispositivo audio la finestra torna al
+ritmo fisso di 50 frame al secondo.
+
 ## Memoria
 
 RAM piatta di 2 MB, tutta trattata come Chip RAM (i chip sono emulati in

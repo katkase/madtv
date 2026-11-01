@@ -22,6 +22,7 @@ F11 tenuto premuto = avanti veloce, F12 = screenshot).
                      i dischi vengono riconosciuti dal nome di volume (MTV1, MTV2)
   --save-dir DIR     cartella per i salvataggi del gioco (default: save)
   --scale N          ingrandimento della finestra (default: 3)
+  --no-audio         nessun suono
   --full-height      mostra tutte le 256 righe PAL (default: le 200 usate dal gioco)
   --mouse-ratio R    conteggi del mouse Amiga per pixel (default: 1.0)
   --cpu-speed P      velocità della CPU in % di un A500, oppure auto
@@ -41,6 +42,7 @@ F11 tenuto premuto = avanti veloce, F12 = screenshot).
                        key NOME | keydown NOME | keyup NOME   tasti (A, ENTER, F1...)
                        type TESTO   scrive un testo
                        shot NOME    salva shots/NOME.png
+  --wav FILE         (headless) registra l'audio del gioco in un file WAV
   --trace FILE       scrive ogni chiamata di sistema in FILE
   --dump FILE        salva la RAM emulata (2 MB) in FILE all'arresto
   --list             elenca i file dei dischi ed esce
@@ -51,6 +53,7 @@ struct Opts {
     adf_dir: PathBuf,
     save_dir: PathBuf,
     scale: usize,
+    no_audio: bool,
     full_height: bool,
     mouse_ratio: f32,
     cpu_speed: Option<String>,
@@ -63,6 +66,7 @@ struct Opts {
     script: Vec<(u64, Action)>,
     list: bool,
     dump: Option<PathBuf>,
+    wav: Option<PathBuf>,
 }
 
 fn parse_args() -> Result<Opts, String> {
@@ -70,6 +74,7 @@ fn parse_args() -> Result<Opts, String> {
         adf_dir: "adf".into(),
         save_dir: "save".into(),
         scale: 3,
+        no_audio: false,
         full_height: false,
         mouse_ratio: 1.0,
         cpu_speed: None,
@@ -82,6 +87,7 @@ fn parse_args() -> Result<Opts, String> {
         script: Vec::new(),
         list: false,
         dump: None,
+        wav: None,
     };
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
@@ -93,6 +99,7 @@ fn parse_args() -> Result<Opts, String> {
             "--mouse-ratio" => o.mouse_ratio = val()?.parse().map_err(|e| format!("{e}"))?,
             "--headless" => o.headless = true,
             "--full-height" => o.full_height = true,
+            "--no-audio" => o.no_audio = true,
             "--cpu-speed" => o.cpu_speed = Some(val()?),
             "--frames" => o.frames = val()?.parse().map_err(|e| format!("{e}"))?,
             "--max-instr" => o.max_instr = val()?.parse().map_err(|e| format!("{e}"))?,
@@ -109,6 +116,7 @@ fn parse_args() -> Result<Opts, String> {
             }
             "--list" => o.list = true,
             "--dump" => o.dump = Some(val()?.into()),
+            "--wav" => o.wav = Some(val()?.into()),
             "--help" | "-h" => {
                 print!("{HELP}");
                 std::process::exit(0);
@@ -237,6 +245,7 @@ fn main() {
                     scale: o.scale,
                     shot_dir: o.shot_dir.clone(),
                     mouse_ratio: o.mouse_ratio,
+                    audio: !o.no_audio,
                 };
                 window::run(&mut m, &wo).unwrap_or(StopReason::FrameLimit)
             }
@@ -354,6 +363,45 @@ fn run_script_until(m: &mut Machine, o: &Opts, last: u64) -> Option<StopReason> 
 }
 
 fn run_headless(m: &mut Machine, o: &Opts) -> StopReason {
+    let mut wav = Vec::new();
+    m.bus.custom.paula.enabled = o.wav.is_some();
+    let r = run_headless_inner(m, o, &mut wav);
+    if let Some(p) = &o.wav {
+        match write_wav(p, &wav, m.bus.custom.paula.rate) {
+            Ok(()) => println!(
+                "audio: {} ({:.1} s)",
+                p.display(),
+                wav.len() as f64 / 2.0 / m.bus.custom.paula.rate as f64
+            ),
+            Err(e) => println!("impossibile scrivere il WAV: {e}"),
+        }
+    }
+    r
+}
+
+/// Scrive un WAV stereo a 16 bit.
+fn write_wav(path: &Path, samples: &[f32], rate: u32) -> std::io::Result<()> {
+    let data_len = (samples.len() * 2) as u32;
+    let mut b = Vec::with_capacity(44 + data_len as usize);
+    b.extend_from_slice(b"RIFF");
+    b.extend_from_slice(&(36 + data_len).to_le_bytes());
+    b.extend_from_slice(b"WAVEfmt ");
+    b.extend_from_slice(&16u32.to_le_bytes());
+    b.extend_from_slice(&1u16.to_le_bytes()); // PCM
+    b.extend_from_slice(&2u16.to_le_bytes()); // stereo
+    b.extend_from_slice(&rate.to_le_bytes());
+    b.extend_from_slice(&(rate * 4).to_le_bytes());
+    b.extend_from_slice(&4u16.to_le_bytes());
+    b.extend_from_slice(&16u16.to_le_bytes());
+    b.extend_from_slice(b"data");
+    b.extend_from_slice(&data_len.to_le_bytes());
+    for s in samples {
+        b.extend_from_slice(&((s.clamp(-1.0, 1.0) * 32767.0) as i16).to_le_bytes());
+    }
+    std::fs::write(path, b)
+}
+
+fn run_headless_inner(m: &mut Machine, o: &Opts, wav: &mut Vec<f32>) -> StopReason {
     let mut next = 0usize;
     let mut target = None;
     loop {
@@ -367,6 +415,9 @@ fn run_headless(m: &mut Machine, o: &Opts) -> StopReason {
         apply_actions(m, o, &mut next, &mut target);
         if let Some(r) = m.run_frame() {
             return r;
+        }
+        if o.wav.is_some() {
+            wav.extend(m.bus.custom.paula.take());
         }
         let f = m.bus.custom.frame;
         if o.shot_every > 0 && f.is_multiple_of(o.shot_every) {
@@ -430,6 +481,7 @@ fn report(m: &Machine) {
             .collect();
         println!("  tutti: {}", all.join(" "));
     }
+    println!("--- audio:\n  {}", c.paula.describe());
     if m.bus.unmapped_reads + m.bus.unmapped_writes > 0 {
         let first: Vec<String> = m
             .bus

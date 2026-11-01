@@ -9,8 +9,8 @@ tu, come fanno OpenRCT2 o ScummVM.
 
 ## Stato
 
-**Fase 2 completata**: il gioco si gioca in una finestra, con mouse e tastiera.
-Manca ancora l'audio (fase 3).
+**Fase 3 completata**: il gioco si gioca in una finestra, con mouse, tastiera
+e audio (musica TFMX ed effetti, attraverso l'emulazione di Paula).
 
 | Selezione dei giocatori | L'edificio della rete | Il capo |
 |---|---|---|
@@ -29,7 +29,7 @@ per il blitter. Invece di riscriverlo da zero, il porting:
 3. sostituisce AmigaOS con un'implementazione in Rust delle poche funzioni di
    sistema che il gioco usa (circa 20) — niente ROM Kickstart;
 4. emula solo i chip custom che il gioco tocca davvero: copper, blitter,
-   bitplane, sprite, palette, mouse, tastiera (e in seguito l'audio).
+   bitplane, sprite, palette, mouse, tastiera, audio.
 
 I dettagli sono in [docs/architettura.md](docs/architettura.md); l'analisi dei
 due eseguibili originali (Amiga e DOS) in [docs/analisi.md](docs/analisi.md).
@@ -70,6 +70,8 @@ Opzioni utili (`madtv --help` per l'elenco completo):
 |---|---|
 | `--scale N` | ingrandimento della finestra (default 3, cioè 960×600) |
 | `--full-height` | mostra tutte le 256 righe PAL invece delle 200 usate dal gioco |
+| `--no-audio` | gioca senza suono |
+| `--headless --wav audio.wav` | registra in un file l'audio prodotto dal gioco |
 | `--cpu-speed P` | velocità della CPU: `auto` (default nella finestra) o una percentuale fissa di un A500, es. `300` |
 | `--headless --frames N` | nessuna finestra: esegue N frame (50 = 1 secondo) e salva `shots\final.png` |
 | `--script "1290:goto 55 101; 1320:click; 2000:shot capo"` | azioni automatiche a frame stabiliti (anche da file: `--script @scripts\nuova-partita.txt`) |
@@ -94,6 +96,8 @@ src/
   bus.rs        memoria e mappa degli indirizzi
   custom.rs     chip custom: copper, blitter, interrupt, mouse, CIA
   render.rs     display riga per riga: bitplane e sprite
+  paula.rs      audio: i 4 canali di Paula, mixaggio e filtri
+  audio.rs      uscita verso la scheda audio del PC (cpal)
   input.rs      mouse, tastiera, script di azioni automatiche
   window.rs     finestra (minifb), 50 frame al secondo
   machine.rs    CPU + bus + sistema operativo; ciclo principale

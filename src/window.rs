@@ -9,6 +9,7 @@
 //! gioco è leggibile (`Machine::game_pointer`) l'allineamento è assoluto: a ogni
 //! frame inviamo la differenza tra il cursore del PC e il puntatore del gioco.
 
+use crate::audio::AudioOut;
 use crate::input;
 use crate::machine::{Machine, StopReason};
 use crate::render::WIDTH;
@@ -20,6 +21,8 @@ pub struct WindowOpts {
     pub shot_dir: PathBuf,
     /// Conteggi del mouse Amiga per pixel del gioco.
     pub mouse_ratio: f32,
+    /// Uscita audio attiva.
+    pub audio: bool,
 }
 
 /// Esegue il gioco in una finestra finché non viene chiusa o il programma termina.
@@ -34,8 +37,29 @@ pub fn run(m: &mut Machine, o: &WindowOpts) -> Option<StopReason> {
             return None;
         }
     };
-    win.set_target_fps(50);
     win.set_cursor_visibility(false);
+    // Audio: se c'è un dispositivo, è la scheda audio a dettare il ritmo dei
+    // frame; altrimenti la finestra limita il ritmo a 50 frame al secondo.
+    let audio = if o.audio { AudioOut::open() } else { None };
+    match &audio {
+        Some(a) => {
+            m.bus.custom.paula.set_rate(a.rate);
+            m.bus.custom.paula.enabled = true;
+            win.set_target_fps(0);
+            println!("audio: {} a {} Hz", a.device_name, a.rate);
+        }
+        None => {
+            win.set_target_fps(50);
+            if o.audio {
+                println!("audio: nessun dispositivo disponibile, gioco senza suono");
+            }
+        }
+    }
+    // Audio da tenere in coda: 3 frame (60 ms) bastano a evitare buchi.
+    let target_queue = audio
+        .as_ref()
+        .map(|a| a.rate as usize * 3 / 50)
+        .unwrap_or(0);
     let mut buf = vec![0u32; w * h];
     let mut last_pos: Option<(f32, f32)> = None;
     let mut shots = 0u32;
@@ -119,9 +143,23 @@ pub fn run(m: &mut Machine, o: &WindowOpts) -> Option<StopReason> {
         } else {
             1
         };
+        if let (Some(a), 1) = (&audio, frames) {
+            // Aspetta che la scheda audio abbia consumato abbastanza campioni.
+            while a.queued_frames() > target_queue {
+                std::thread::sleep(std::time::Duration::from_millis(1));
+            }
+        }
         for _ in 0..frames {
             if let Some(stop) = m.run_frame() {
                 return Some(stop);
+            }
+        }
+        let samples = m.bus.custom.paula.take();
+        if let Some(a) = &audio {
+            if frames == 1 {
+                a.push(&samples);
+            } else {
+                a.clear(); // avanti veloce: niente audio accelerato
             }
         }
 

@@ -3,7 +3,7 @@
 Questo file è la "memoria" del progetto tra una sessione e l'altra: stato,
 scoperte, decisioni e prossimi passi. Va aggiornato alla fine di ogni sessione.
 
-## Stato attuale (fine fase 2, 1 novembre 2026)
+## Stato attuale (fine fase 3, 1 novembre 2026)
 
 - **Giocabile in una finestra** (minifb, 50 Hz, 960×600 di default), con mouse
   e tastiera: confermato da Pam su Windows con una partita vera (palinsesto,
@@ -12,8 +12,9 @@ scoperte, decisioni e prossimi passi. Va aggiornato alla fine di ogni sessione.
 - Il caricamento iniziale (circa 25 s a velocità reale) viene accelerato in
   automatico finché lo schermo è nero; F11 tenuto premuto = avanti veloce.
 - Velocità dell'emulazione: circa 1.000 frame/s (20 volte il tempo reale).
-- **Manca l'audio**: il gioco accende i canali 0 e 1 (DMACON = `$03D3`)
-  durante la partita, quindi ci sono già effetti sonori da emulare.
+- **Audio**: Paula emulata (4 canali DMA, ricarica con interrupt, modo
+  manuale, filtri A500 e LED), uscita con `cpal`; nella finestra è la scheda
+  audio a dettare il ritmo dei frame. Da confermare all'ascolto su Windows.
 - La modalità senza finestra (`--headless`) resta, con gli script di azioni,
   per test e analisi.
 
@@ -21,6 +22,7 @@ scoperte, decisioni e prossimi passi. Va aggiornato alla fine di ogni sessione.
 
 - Fase 1: avvio fino alla schermata di selezione dei giocatori.
 - Fase 2: renderer riga per riga, sprite, finestra, mouse, tastiera, script.
+- Fase 3: audio.
 - Correzioni dopo la prova di Pam su Windows: puntatore che sfarfallava
   (soprattutto ai bordi), ritardo nell'apertura delle finestre del gioco,
   puntatore che saltava sulle zone con etichetta al passaggio del mouse,
@@ -126,9 +128,8 @@ Hardware usato direttamente:
   valgono per tutta la riga; le righe hires vengono dimezzate.
 - Blitter: modalità linea non emulata (viene contata nel rapporto; finora mai usata).
 - Tastiera: nessun tastierino numerico; i tasti senza equivalente Amiga sono ignorati.
-- Audio: nessuno (vedi fase 3). All'avvio il gioco prova `Lock("078.HES")`
-  nella directory corrente (MTV1:), ma la musica TFMX sta sul disco 2:
-  verificare in WinUAE se la versione su floppy suona davvero la musica.
+- Audio: niente modulazione tra canali (ADKCON) e temporizzazione degli slot
+  DMA approssimata; non emulati i timer delle CIA (il gioco finora non li usa).
 - La startup-sequence originale lancia anche `rai` (intro Rainbow Arts) e
   `v u3.lbm` (visualizzatore IFF): per ora eseguiamo solo `mtv s`.
 - Delay() salta i frame in un colpo solo.
@@ -138,16 +139,32 @@ Hardware usato direttamente:
   `--full-height` mostra le 256 righe PAL. Se il gioco disegnasse oltre, la
   finestra lo segnala in console.
 
-## Prossimi passi (fase 3: audio)
+## Audio (fase 3)
 
-1. Paula: 4 canali DMA (AUDxLC, AUDxLEN, AUDxPER, AUDxVOL, AUDxDAT),
-   interrupt di fine campione (AUD0-3, livello 4), ADKCON (modulazioni, rare).
-2. Uscita audio con `cpal`, ricampionamento da ~3,5 MHz / periodo a 44,1 o 48 kHz,
-   filtro passa-basso, stereo Amiga (canali 0/3 a sinistra, 1/2 a destra).
-3. Sincronizzazione audio/video: l'audio guida il ritmo dei frame.
-4. Capire perché la musica TFMX non parte (o se sulla versione floppy manca):
-   `Lock("078.HES")` fallisce nella directory corrente.
-5. Facoltativo: intro `rai` e immagine `u3.lbm` prima del gioco.
+- **Musica**: TFMX. Il replayer è `098.HES` (disco 1), le canzoni sono coppie
+  canzone+campioni sul disco 2 (094/095, 086/087...). All'avvio il gioco
+  prova `Lock("078.HES")` nella directory corrente e, se non lo trova, usa
+  `MTV2:078.HES`: la musica viene caricata regolarmente (il dubbio della fase 1
+  era infondato).
+- Il replayer riscrive i periodi dei canali 0-2 a ogni frame (50 Hz, dal suo
+  interrupt); a fine nota mette il canale in loop su una parola di zeri.
+- Il gioco non abilita gli interrupt audio (INTENA = `$603C`), quindi gli
+  interrupt AUD0-3 di Paula vengono generati ma non serviti; il livello 4 resta
+  comunque gestito.
+- Il silenzio sulla schermata di selezione dei giocatori è da verificare in
+  WinUAE: l'audio parte dopo "New game".
+- Strumenti: `--headless --wav FILE` registra l'audio; il rapporto finale mostra
+  lo stato dei canali; `cargo run --release --example audio_check` verifica il
+  dispositivo audio.
+
+## Prossimi passi
+
+1. Conferma all'ascolto (Pam, su Windows) e confronto con WinUAE.
+2. Intro originale: `rai` (logo Rainbow Arts) e `v u3.lbm` prima del gioco.
+3. Pulizia: limiti noti del renderer (priorità sprite, scroll fine) se
+   qualche schermata ne ha bisogno.
+4. Fase successiva, quando si vorrà: riscrittura in Rust delle funzioni del
+   gioco, una alla volta, verificandole contro l'originale.
 
 ## Decisioni prese
 

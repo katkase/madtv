@@ -133,6 +133,9 @@ pub struct Custom {
     pub copper_moves: u64,
     /// Immagine a schermo, costruita riga per riga.
     pub display: crate::render::Display,
+    /// Audio (4 canali).
+    pub paula: crate::paula::Paula,
+    audio_rem: u64,
 }
 
 impl Custom {
@@ -160,6 +163,8 @@ impl Custom {
             cop_halted: true,
             copper_moves: 0,
             display: crate::render::Display::new(),
+            paula: crate::paula::Paula::new(48_000),
+            audio_rem: 0,
         };
         c.cia[0][0] = 0xFF; // PRA: nessun pulsante premuto, disco inserito
         c
@@ -173,6 +178,13 @@ impl Custom {
     /// attraversata esegue il copper e disegna la riga. Restituisce true se è
     /// iniziato almeno un nuovo frame (vertical blank).
     pub fn advance(&mut self, cycles: u64, ram: &mut [u8]) -> bool {
+        // Audio: il clock audio è la metà di quello della CPU.
+        self.audio_rem += cycles;
+        let audio_clocks = self.audio_rem / 2;
+        self.audio_rem %= 2;
+        if audio_clocks > 0 {
+            self.intreq |= self.paula.run(audio_clocks, ram);
+        }
         let line_before = self.cycles / CYCLES_PER_LINE;
         self.cycles += cycles;
         let line_after = self.cycles / CYCLES_PER_LINE;
@@ -283,7 +295,11 @@ impl Custom {
         self.write_count[idx] += 1;
         self.regs[idx] = val;
         match off {
-            0x096 => set_clr(&mut self.dmacon, val),
+            0x096 => {
+                set_clr(&mut self.dmacon, val);
+                self.intreq |= self.paula.set_dmacon(self.dmacon, ram);
+            }
+            0x0A0..=0x0DE => self.intreq |= self.paula.write(off, val),
             0x09A => set_clr(&mut self.intena, val),
             0x09C => set_clr(&mut self.intreq, val),
             0x080 | 0x082 => self.cop1lc = self.long_reg(0x080),
@@ -328,6 +344,10 @@ impl Custom {
         let which = if a & 1 == 1 { 0 } else { 1 };
         let reg = ((a >> 8) & 0xF) as usize;
         self.cia[which][reg] = v;
+        if which == 0 && reg == 0 {
+            // CIA-A PRA bit 1: LED di accensione, che comanda anche il filtro audio (0 = acceso).
+            self.paula.led_filter = v & 0x02 == 0;
+        }
     }
 
     /// Esegue una blittata quando viene scritto BLTSIZE.

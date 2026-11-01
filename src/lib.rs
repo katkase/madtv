@@ -9,11 +9,13 @@
 //! - [`render`]: conversione di copper list e bitplane in immagine.
 
 pub mod adf;
+pub mod audio;
 pub mod bus;
 pub mod custom;
 pub mod hunk;
 pub mod input;
 pub mod machine;
 pub mod os;
+pub mod paula;
 pub mod render;
 pub mod window;
