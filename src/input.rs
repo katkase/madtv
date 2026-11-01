@@ -28,6 +28,58 @@ pub fn key(c: &mut Custom, code: u8, pressed: bool) {
     c.cia[0][0xC] = !k.rotate_left(1);
 }
 
+/// Limiti del puntatore imposti dal gioco (misurati: il gioco lo blocca qui).
+pub const POINTER_MAX_X: i32 = 303;
+pub const POINTER_MAX_Y: i32 = 189;
+
+/// Insegue un bersaglio sullo schermo con il puntatore del gioco.
+///
+/// Il gioco applica i movimenti del mouse con 1-2 frame di ritardo: se a ogni
+/// frame inviassimo semplicemente "bersaglio - posizione attuale", lo stesso
+/// movimento verrebbe inviato più volte e il puntatore supererebbe il bersaglio
+/// oscillando (sfarfallio). Teniamo quindi il conto dei conteggi inviati ma non
+/// ancora visti muovere il puntatore (`pending`), e limitiamo il bersaglio
+/// all'area in cui il puntatore può stare, così ai bordi non si spinge invano.
+#[derive(Default)]
+pub struct PointerSync {
+    pending: (i32, i32),
+    last: Option<(i32, i32)>,
+    still_frames: u32,
+}
+
+impl PointerSync {
+    /// Restituisce i conteggi da inviare in questo frame per avvicinarsi a `target`,
+    /// data la posizione attuale del puntatore secondo il gioco.
+    pub fn step(&mut self, pointer: (i32, i32), target: (i32, i32)) -> (i32, i32) {
+        if let Some(last) = self.last {
+            let moved = (pointer.0 - last.0, pointer.1 - last.1);
+            self.pending.0 -= moved.0;
+            self.pending.1 -= moved.1;
+            if moved == (0, 0) {
+                self.still_frames += 1;
+                // Se il puntatore resta fermo (bordo raggiunto, o il gioco non
+                // legge il mouse), i conteggi in sospeso non arriveranno più.
+                if self.still_frames >= 3 {
+                    self.pending = (0, 0);
+                }
+            } else {
+                self.still_frames = 0;
+            }
+        }
+        self.last = Some(pointer);
+        let tx = target.0.clamp(0, POINTER_MAX_X);
+        let ty = target.1.clamp(0, POINTER_MAX_Y);
+        let predicted = (pointer.0 + self.pending.0, pointer.1 + self.pending.1);
+        let d = (
+            (tx - predicted.0).clamp(-100, 100),
+            (ty - predicted.1).clamp(-100, 100),
+        );
+        self.pending.0 += d.0;
+        self.pending.1 += d.1;
+        d
+    }
+}
+
 /// Codici tasto Amiga per nome (usati dagli script e dalla finestra).
 pub fn key_code(name: &str) -> Option<u8> {
     let n = name.to_uppercase();
@@ -245,6 +297,36 @@ mod tests {
         assert_eq!(c.cia[0][0xC], !0x40u8);
         key(&mut c, 0x20, false); // A rilasciato: codice 0xA0
         assert_eq!(c.cia[0][0xC], !0x41u8);
+    }
+
+    /// Il puntatore simulato applica i movimenti con un frame di ritardo e li
+    /// smorza (metà del residuo per frame), come fa Mad TV: l'inseguimento non
+    /// deve mai superare il bersaglio né spingere oltre i limiti.
+    #[test]
+    fn inseguimento_senza_rimbalzi() {
+        let mut sync = PointerSync::default();
+        let (mut pos, mut queued, mut residual) = ((160i32, 100i32), (0i32, 0i32), (0i32, 0i32));
+        for frame in 0..60 {
+            let target = if frame < 30 { (200, 150) } else { (400, 300) };
+            let d = sync.step(pos, target);
+            // ritardo di un frame, poi smorzamento
+            residual.0 += queued.0;
+            residual.1 += queued.1;
+            queued = d;
+            let step = (residual.0 - residual.0 / 2, residual.1 - residual.1 / 2);
+            residual = (residual.0 - step.0, residual.1 - step.1);
+            pos = (
+                (pos.0 + step.0).clamp(0, POINTER_MAX_X),
+                (pos.1 + step.1).clamp(0, POINTER_MAX_Y),
+            );
+            if frame < 30 {
+                assert!(
+                    pos.0 <= 200 && pos.1 <= 150,
+                    "superato il bersaglio: {pos:?}"
+                );
+            }
+        }
+        assert_eq!(pos, (POINTER_MAX_X, POINTER_MAX_Y));
     }
 
     #[test]

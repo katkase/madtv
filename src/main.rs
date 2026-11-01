@@ -15,14 +15,17 @@ Mad TV - porting Rust della versione Amiga
 
 USO: madtv [opzioni]
 
-Di default apre la finestra di gioco (F11 tenuto premuto = avanti veloce,
-F12 = screenshot).
+Di default apre la finestra di gioco (F10 = CPU originale/veloce,
+F11 tenuto premuto = avanti veloce, F12 = screenshot).
 
   --adf-dir DIR      cartella con le immagini ADF originali (default: adf)
                      i dischi vengono riconosciuti dal nome di volume (MTV1, MTV2)
   --save-dir DIR     cartella per i salvataggi del gioco (default: save)
   --scale N          ingrandimento della finestra (default: 3)
   --mouse-ratio R    conteggi del mouse Amiga per pixel (default: 1.0)
+  --cpu-speed P      velocità della CPU in % di un A500 (default: 300 con la
+                     finestra, 100 in headless). Il ritmo del gioco non cambia:
+                     si accorciano solo le attese di calcolo e disegno.
   --headless         nessuna finestra: esegue --frames frame e salva screenshot
   --frames N         (headless) frame PAL da eseguire, 50 = 1 secondo (default: 500)
   --max-instr N      (headless) limite di istruzioni 68000
@@ -47,6 +50,7 @@ struct Opts {
     save_dir: PathBuf,
     scale: usize,
     mouse_ratio: f32,
+    cpu_speed: Option<u32>,
     headless: bool,
     frames: u64,
     max_instr: u64,
@@ -64,6 +68,7 @@ fn parse_args() -> Result<Opts, String> {
         save_dir: "save".into(),
         scale: 3,
         mouse_ratio: 1.0,
+        cpu_speed: None,
         headless: false,
         frames: 500,
         max_instr: u64::MAX,
@@ -83,6 +88,7 @@ fn parse_args() -> Result<Opts, String> {
             "--scale" => o.scale = val()?.parse().map_err(|e| format!("{e}"))?,
             "--mouse-ratio" => o.mouse_ratio = val()?.parse().map_err(|e| format!("{e}"))?,
             "--headless" => o.headless = true,
+            "--cpu-speed" => o.cpu_speed = Some(val()?.parse().map_err(|e| format!("{e}"))?),
             "--frames" => o.frames = val()?.parse().map_err(|e| format!("{e}"))?,
             "--max-instr" => o.max_instr = val()?.parse().map_err(|e| format!("{e}"))?,
             "--trace" => o.trace = Some(val()?.into()),
@@ -186,6 +192,10 @@ fn main() {
         let f = std::fs::File::create(t).expect("impossibile creare il file di trace");
         m.os.trace = Some(std::io::BufWriter::new(f));
     }
+    m.cpu_speed = o
+        .cpu_speed
+        .unwrap_or(if o.headless { 100 } else { 300 })
+        .clamp(25, 2000);
     m.boot_os();
     // La startup-sequence originale lancia "mtv s".
     m.load_executable(&exe, "s").expect("eseguibile non valido");
@@ -263,22 +273,32 @@ fn main() {
 }
 
 /// Avvicina il puntatore del gioco al bersaglio (al massimo 100 conteggi per frame).
-fn step_goto(m: &mut Machine, target: &mut Option<(i32, i32)>) {
-    let Some((tx, ty)) = *target else { return };
-    let Some((px, py)) = m.game_pointer() else {
-        return;
-    };
-    let (dx, dy) = ((tx - px).clamp(-100, 100), (ty - py).clamp(-100, 100));
-    if dx == 0 && dy == 0 {
+fn step_goto(m: &mut Machine, target: &mut Option<(i32, i32)>, sync: &mut input::PointerSync) {
+    let Some(t) = *target else { return };
+    let Some(p) = m.game_pointer() else { return };
+    let reached = (
+        t.0.clamp(0, input::POINTER_MAX_X),
+        t.1.clamp(0, input::POINTER_MAX_Y),
+    ) == p;
+    if reached {
         *target = None;
-    } else {
+        return;
+    }
+    let (dx, dy) = sync.step(p, t);
+    if dx != 0 || dy != 0 {
         input::mouse_move(&mut m.bus.custom, dx, dy);
     }
 }
 
 /// Applica le azioni dello script previste per il frame corrente.
-fn apply_actions(m: &mut Machine, o: &Opts, next: &mut usize, target: &mut Option<(i32, i32)>) {
-    step_goto(m, target);
+fn apply_actions(
+    m: &mut Machine,
+    o: &Opts,
+    next: &mut usize,
+    target: &mut Option<(i32, i32)>,
+    sync: &mut input::PointerSync,
+) {
+    step_goto(m, target, sync);
     let frame = m.bus.custom.frame;
     while *next < o.script.len() && o.script[*next].0 <= frame {
         let c = &mut m.bus.custom;
@@ -306,8 +326,9 @@ fn apply_actions(m: &mut Machine, o: &Opts, next: &mut usize, target: &mut Optio
 fn run_script_until(m: &mut Machine, o: &Opts, last: u64) -> Option<StopReason> {
     let mut next = 0usize;
     let mut target = None;
+    let mut sync = input::PointerSync::default();
     while m.bus.custom.frame <= last && next < o.script.len() {
-        apply_actions(m, o, &mut next, &mut target);
+        apply_actions(m, o, &mut next, &mut target, &mut sync);
         if let Some(r) = m.run_frame() {
             return Some(r);
         }
@@ -318,6 +339,7 @@ fn run_script_until(m: &mut Machine, o: &Opts, last: u64) -> Option<StopReason> 
 fn run_headless(m: &mut Machine, o: &Opts) -> StopReason {
     let mut next = 0usize;
     let mut target = None;
+    let mut sync = input::PointerSync::default();
     loop {
         let frame = m.bus.custom.frame;
         if frame >= o.frames {
@@ -326,7 +348,7 @@ fn run_headless(m: &mut Machine, o: &Opts) -> StopReason {
         if m.instructions >= o.max_instr {
             return StopReason::InstructionLimit;
         }
-        apply_actions(m, o, &mut next, &mut target);
+        apply_actions(m, o, &mut next, &mut target, &mut sync);
         if let Some(r) = m.run_frame() {
             return r;
         }

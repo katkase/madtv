@@ -138,7 +138,17 @@ playfield e HAM.
 Nella finestra (`window.rs`) il puntatore del gioco viene tenuto allineato con
 quello del PC: a ogni frame leggiamo la posizione del puntatore dalle variabili
 del gioco (`Machine::game_pointer`) e inviamo la differenza come movimento del
-mouse.
+mouse. Poiché il gioco applica i movimenti in ritardo, `input::PointerSync`
+sottrae i conteggi già inviati e non ancora visti, e limita il bersaglio all'area
+in cui il gioco lascia stare il puntatore.
+
+## Velocità della CPU
+
+`Machine::cpu_speed` (percentuale di un A500) cambia quanti cicli del chipset
+corrispondono a un ciclo della CPU: al 300% la CPU esegue tre volte più
+istruzioni per frame. Il gioco scandisce il proprio tempo con l'interrupt di
+frame, quindi il ritmo di gioco non cambia: si accorciano solo le attese di
+calcolo (decompressione e disegno delle schermate).
 
 ### Script di azioni
 

@@ -20,6 +20,8 @@ scoperte, decisioni e prossimi passi. Va aggiornato alla fine di ogni sessione.
 
 - Fase 1: avvio fino alla schermata di selezione dei giocatori.
 - Fase 2: renderer riga per riga, sprite, finestra, mouse, tastiera, script.
+- Correzioni dopo la prova di Pam su Windows: puntatore che sfarfallava
+  (soprattutto ai bordi) e ritardo nell'apertura delle finestre del gioco.
 
 ## Versione dei dischi
 
@@ -60,6 +62,21 @@ Hardware usato direttamente:
   caricamento). Una copia a `+6` sembra la posizione precedente. La finestra la
   usa per tenere allineato il puntatore del gioco con quello del PC.
 - **Mouse**: 1 conteggio del mouse Amiga = 1 pixel lores (misurato).
+  Il gioco applica i movimenti con 1-2 frame di ritardo e li **smorza**
+  (circa metà del residuo per frame, assestamento in 6-8 frame): è un
+  comportamento dell'originale. Limiti del puntatore: X 0..303, Y 0..189.
+  L'inseguimento nella finestra (`input::PointerSync`) tiene conto dei
+  conteggi già inviati e non ancora applicati, altrimenti li reinvia e il
+  puntatore oscilla (era lo sfarfallio segnalato); il bersaglio viene limitato
+  all'area del puntatore, così ai bordi non si spinge invano. Strumento di
+  misura: `cargo run --release --example mouse_lab`.
+- **Velocità**: le transizioni (apertura di finestre, cambi di schermata) sono
+  limitate dalla CPU, non dal disco. Misure dal click su "New game":
+  primo cambiamento dopo 4,3 s e capo dopo 12,2 s con la CPU al 100%;
+  1,5 s e 4 s al 300%. L'orologio del gioco avanza di 10 minuti ogni 1.000
+  frame a entrambe le velocità: il tempo di gioco è scandito dagli interrupt di
+  frame, quindi accelerare la CPU non altera il gameplay. Default: 300% nella
+  finestra (F10 per passare al 100%), 100% in headless per gli script.
 - **Tastiera**: il gioco legge la CIA-A SDR nel suo interrupt e reagisce ai
   cambiamenti del valore (nessun handshake necessario). Invio conferma i
   campi di testo.

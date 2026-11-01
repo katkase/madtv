@@ -39,6 +39,12 @@ pub struct Machine {
     pub seglist: u32,
     /// Segmenti caricati: (indirizzo dei dati, dimensione, tipo).
     pub segments: Vec<(u32, u32, &'static str)>,
+    /// Velocità della CPU in percentuale rispetto a un A500 (100 = 7,09 MHz).
+    /// Valori più alti fanno eseguire più istruzioni per frame: il gioco
+    /// calcola e disegna più in fretta, ma il suo ritmo (scandito dagli
+    /// interrupt di frame) non cambia.
+    pub cpu_speed: u32,
+    cycle_acc: u64,
     /// Ultimi PC eseguiti (diagnostica in caso di errore).
     pub pc_history: [u32; 64],
     pub pc_hist_pos: usize,
@@ -63,6 +69,8 @@ impl Machine {
             entry: 0,
             seglist: 0,
             segments: Vec::new(),
+            cpu_speed: 100,
+            cycle_acc: 0,
             pc_history: [0; 64],
             pc_hist_pos: 0,
         }
@@ -380,7 +388,13 @@ impl Machine {
                 let to_next = FRAME_CYCLES - self.bus.custom.cycles % FRAME_CYCLES;
                 extra = to_next + (frames - 1) * FRAME_CYCLES;
             }
-            self.bus.custom.advance(cycles + extra, &mut self.bus.ram);
+            // Con una CPU più veloce, ogni istruzione consuma meno tempo del chipset.
+            self.cycle_acc += cycles * 100;
+            let chip_cycles = self.cycle_acc / self.cpu_speed.max(1) as u64;
+            self.cycle_acc %= self.cpu_speed.max(1) as u64;
+            self.bus
+                .custom
+                .advance(chip_cycles + extra, &mut self.bus.ram);
         }
     }
 }
