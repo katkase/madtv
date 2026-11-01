@@ -21,7 +21,8 @@ scoperte, decisioni e prossimi passi. Va aggiornato alla fine di ogni sessione.
 - Fase 1: avvio fino alla schermata di selezione dei giocatori.
 - Fase 2: renderer riga per riga, sprite, finestra, mouse, tastiera, script.
 - Correzioni dopo la prova di Pam su Windows: puntatore che sfarfallava
-  (soprattutto ai bordi) e ritardo nell'apertura delle finestre del gioco.
+  (soprattutto ai bordi), ritardo nell'apertura delle finestre del gioco,
+  puntatore che saltava sulle zone con etichetta al passaggio del mouse.
 
 ## Versione dei dischi
 
@@ -62,14 +63,26 @@ Hardware usato direttamente:
   caricamento). Una copia a `+6` sembra la posizione precedente. La finestra la
   usa per tenere allineato il puntatore del gioco con quello del PC.
 - **Mouse**: 1 conteggio del mouse Amiga = 1 pixel lores (misurato).
-  Il gioco applica i movimenti con 1-2 frame di ritardo e li **smorza**
-  (circa metà del residuo per frame, assestamento in 6-8 frame): è un
-  comportamento dell'originale. Limiti del puntatore: X 0..303, Y 0..189.
-  L'inseguimento nella finestra (`input::PointerSync`) tiene conto dei
-  conteggi già inviati e non ancora applicati, altrimenti li reinvia e il
-  puntatore oscilla (era lo sfarfallio segnalato); il bersaglio viene limitato
-  all'area del puntatore, così ai bordi non si spinge invano. Strumento di
-  misura: `cargo run --release --example mouse_lab`.
+  Come lo gestisce il gioco (letto nel codice):
+  - l'interrupt di frame (`$0401CC`) legge JOY0DAT, calcola lo spostamento
+    del frame (`$045806`/`$045808`) e lo **somma** in due accumulatori,
+    offset `$2C2E`/`$2C30` del segmento dati (`$04723E`/`$047240`): i
+    movimenti non vanno mai persi;
+  - il ciclo principale (`$015530`) svuota gli accumulatori e sposta il
+    puntatore, tutto in una volta o a pezzi (lo smorzamento, funzione
+    `$0167DC`); quando è occupato (per esempio mentre disegna un'etichetta al
+    passaggio del mouse) salta qualche frame;
+  - il puntatore viene limitato tra quattro variabili che cambiano con la
+    schermata: offset `$2BD2`/`$2BD4` (minimi X/Y) e `$2BD6`/`$2BD8`
+    (massimi; 303/189 nella schermata principale).
+  La finestra (`input::pointer_step`) usa queste variabili: posizione
+  prevista = puntatore + accumulatori, bersaglio limitato ai limiti della
+  schermata. Una prima versione stimava i movimenti in sospeso e dopo 3 frame
+  di puntatore fermo li dava per persi: quando il gioco era occupato li
+  reinviava e il puntatore saltava (fino a 30 px oltre il bersaglio).
+  Strumenti di misura: `cargo run --release --example mouse_lab` e
+  `CLICKS=3 SPEED=3 cargo run --release --example mouse_sweep` (scorrimento
+  sopra le porte dell'edificio, con le etichette al passaggio del mouse).
 - **Velocità**: le transizioni (apertura di finestre, cambi di schermata) sono
   limitate dalla CPU, non dal disco. Misure dal click su "New game":
   primo cambiamento dopo 4,3 s e capo dopo 12,2 s con la CPU al 100%;

@@ -37,7 +37,6 @@ pub fn run(m: &mut Machine, o: &WindowOpts) -> Option<StopReason> {
     win.set_cursor_visibility(false);
     let mut buf = vec![0u32; w * h];
     let mut last_pos: Option<(f32, f32)> = None;
-    let mut sync = input::PointerSync::default();
     let fast_speed = if m.cpu_speed > 100 { m.cpu_speed } else { 300 };
     let mut shots = 0u32;
 
@@ -45,11 +44,11 @@ pub fn run(m: &mut Machine, o: &WindowOpts) -> Option<StopReason> {
         // --- input ---
         if let Some((mx, my)) = win.get_mouse_pos(MouseMode::Clamp) {
             let (gx, gy) = (mx / s as f32, my / s as f32);
-            match m.game_pointer() {
+            match m.game_mouse() {
                 // Allineamento assoluto: spostiamo il mouse Amiga della differenza
                 // tra il cursore del PC e il puntatore del gioco.
-                Some(p) => {
-                    let (dx, dy) = sync.step(p, (gx as i32, gy as i32));
+                Some(g) => {
+                    let (dx, dy) = input::pointer_step(&g, (gx as i32, gy as i32));
                     if dx != 0 || dy != 0 {
                         input::mouse_move(&mut m.bus.custom, dx, dy);
                     }

@@ -25,10 +25,10 @@ fn main() {
         .chain(vec![(330, 260); 15])
         .chain(vec![(-10, -10); 15])
         .collect();
-    let mut sync = input::PointerSync::default();
     for (tx, ty) in targets {
-        let p = m.game_pointer().unwrap();
-        let (dx, dy) = sync.step(p, (tx, ty));
+        let g = m.game_mouse().unwrap();
+        let p = g.pos;
+        let (dx, dy) = input::pointer_step(&g, (tx, ty));
         input::mouse_move(&mut m.bus.custom, dx, dy);
         m.run_frame();
         let q = m.game_pointer().unwrap();

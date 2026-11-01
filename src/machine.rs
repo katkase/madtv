@@ -20,6 +20,18 @@ const USER_STACK: u32 = 64 * 1024;
 
 pub const FRAME_CYCLES: u64 = CYCLES_PER_LINE * LINES_PER_FRAME;
 
+/// Variabili del gioco che descrivono il mouse (vedi `Machine::game_mouse`).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct GameMouse {
+    /// Posizione del puntatore.
+    pub pos: (i32, i32),
+    /// Movimento ricevuto e non ancora applicato al puntatore.
+    pub pending: (i32, i32),
+    /// Limiti del puntatore nella schermata corrente.
+    pub min: (i32, i32),
+    pub max: (i32, i32),
+}
+
 #[derive(Debug)]
 pub enum StopReason {
     Exited(i32),
@@ -266,22 +278,30 @@ impl Machine {
         }
     }
 
-    /// Posizione del puntatore del mouse secondo il gioco (pixel dello schermo),
-    /// letta dalle sue variabili: offset $40/$42 del segmento dati (segmento 2
-    /// della seglist, che dopo la decompressione contiene i dati del programma).
-    /// Scoperta confrontando la RAM prima e dopo movimenti noti del mouse.
-    pub fn game_pointer(&self) -> Option<(i32, i32)> {
+    /// Stato del mouse secondo il gioco, letto dalle sue variabili nel
+    /// segmento dati (segmento 2 della seglist). Vedi NOTES.md, "Mouse".
+    pub fn game_mouse(&self) -> Option<GameMouse> {
         let (base, size, _) = *self.segments.get(2)?;
-        if size < 0x44 {
+        if size < 0x2C32 {
             return None;
         }
-        let x = self.bus.peek16(base + 0x40) as i16 as i32;
-        let y = self.bus.peek16(base + 0x42) as i16 as i32;
-        if (0..=400).contains(&x) && (0..=300).contains(&y) {
-            Some((x, y))
-        } else {
-            None
+        let w = |off: u32| self.bus.peek16(base + off) as i16 as i32;
+        let pos = (w(0x40), w(0x42));
+        if !(0..=400).contains(&pos.0) || !(0..=300).contains(&pos.1) {
+            return None;
         }
+        Some(GameMouse {
+            pos,
+            // Movimento accumulato dall'interrupt e non ancora applicato dal ciclo principale.
+            pending: (w(0x2C2E), w(0x2C30)),
+            min: (w(0x2BD2), w(0x2BD4)),
+            max: (w(0x2BD6), w(0x2BD8)),
+        })
+    }
+
+    /// Posizione del puntatore del mouse secondo il gioco (pixel dello schermo).
+    pub fn game_pointer(&self) -> Option<(i32, i32)> {
+        self.game_mouse().map(|g| g.pos)
     }
 
     /// Esegue un frame completo (fino al prossimo vertical blank).

@@ -138,9 +138,10 @@ playfield e HAM.
 Nella finestra (`window.rs`) il puntatore del gioco viene tenuto allineato con
 quello del PC: a ogni frame leggiamo la posizione del puntatore dalle variabili
 del gioco (`Machine::game_pointer`) e inviamo la differenza come movimento del
-mouse. Poiché il gioco applica i movimenti in ritardo, `input::PointerSync`
-sottrae i conteggi già inviati e non ancora visti, e limita il bersaglio all'area
-in cui il gioco lascia stare il puntatore.
+mouse. Il gioco accumula i movimenti nell'interrupt e li applica nel ciclo
+principale, a volte con qualche frame di ritardo: `input::pointer_step` legge
+anche gli accumulatori e i limiti del puntatore della schermata corrente
+(`Machine::game_mouse`), così non reinvia mai un movimento già fatto.
 
 ## Velocità della CPU
 

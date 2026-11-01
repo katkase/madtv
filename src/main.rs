@@ -273,32 +273,20 @@ fn main() {
 }
 
 /// Avvicina il puntatore del gioco al bersaglio (al massimo 100 conteggi per frame).
-fn step_goto(m: &mut Machine, target: &mut Option<(i32, i32)>, sync: &mut input::PointerSync) {
+fn step_goto(m: &mut Machine, target: &mut Option<(i32, i32)>) {
     let Some(t) = *target else { return };
-    let Some(p) = m.game_pointer() else { return };
-    let reached = (
-        t.0.clamp(0, input::POINTER_MAX_X),
-        t.1.clamp(0, input::POINTER_MAX_Y),
-    ) == p;
-    if reached {
-        *target = None;
-        return;
-    }
-    let (dx, dy) = sync.step(p, t);
-    if dx != 0 || dy != 0 {
+    let Some(g) = m.game_mouse() else { return };
+    let (dx, dy) = input::pointer_step(&g, t);
+    if dx == 0 && dy == 0 && g.pending == (0, 0) {
+        *target = None; // arrivato (o bloccato dai limiti della schermata)
+    } else if dx != 0 || dy != 0 {
         input::mouse_move(&mut m.bus.custom, dx, dy);
     }
 }
 
 /// Applica le azioni dello script previste per il frame corrente.
-fn apply_actions(
-    m: &mut Machine,
-    o: &Opts,
-    next: &mut usize,
-    target: &mut Option<(i32, i32)>,
-    sync: &mut input::PointerSync,
-) {
-    step_goto(m, target, sync);
+fn apply_actions(m: &mut Machine, o: &Opts, next: &mut usize, target: &mut Option<(i32, i32)>) {
+    step_goto(m, target);
     let frame = m.bus.custom.frame;
     while *next < o.script.len() && o.script[*next].0 <= frame {
         let c = &mut m.bus.custom;
@@ -326,9 +314,8 @@ fn apply_actions(
 fn run_script_until(m: &mut Machine, o: &Opts, last: u64) -> Option<StopReason> {
     let mut next = 0usize;
     let mut target = None;
-    let mut sync = input::PointerSync::default();
     while m.bus.custom.frame <= last && next < o.script.len() {
-        apply_actions(m, o, &mut next, &mut target, &mut sync);
+        apply_actions(m, o, &mut next, &mut target);
         if let Some(r) = m.run_frame() {
             return Some(r);
         }
@@ -339,7 +326,6 @@ fn run_script_until(m: &mut Machine, o: &Opts, last: u64) -> Option<StopReason> 
 fn run_headless(m: &mut Machine, o: &Opts) -> StopReason {
     let mut next = 0usize;
     let mut target = None;
-    let mut sync = input::PointerSync::default();
     loop {
         let frame = m.bus.custom.frame;
         if frame >= o.frames {
@@ -348,7 +334,7 @@ fn run_headless(m: &mut Machine, o: &Opts) -> StopReason {
         if m.instructions >= o.max_instr {
             return StopReason::InstructionLimit;
         }
-        apply_actions(m, o, &mut next, &mut target, &mut sync);
+        apply_actions(m, o, &mut next, &mut target);
         if let Some(r) = m.run_frame() {
             return r;
         }
