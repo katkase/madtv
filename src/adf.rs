@@ -53,6 +53,7 @@ pub struct Entry {
 }
 
 /// Un'immagine ADF caricata in memoria.
+#[derive(Clone)]
 pub struct Adf {
     data: Vec<u8>,
     ffs: bool,

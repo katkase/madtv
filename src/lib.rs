@@ -13,6 +13,7 @@ pub mod audio;
 pub mod bus;
 pub mod custom;
 pub mod hunk;
+pub mod iff;
 pub mod input;
 pub mod machine;
 pub mod os;

@@ -164,10 +164,23 @@ senza finestra: voci `FRAME:azione` (`goto X Y`, `move DX DY`, `click`,
 problema e per confrontare il comportamento con WinUAE. Esempio in
 `scripts/nuova-partita.txt`.
 
+## Eccezioni
+
+Le trap A-line sono il nostro canale verso il sistema operativo emulato. Le
+altre eccezioni sincrone (TRAP #n, F-line, ILLEGAL) vengono prese dalla CPU
+come sull'hardware, con salto al vettore: alcuni programmi (l'intro `rai`)
+installano un proprio vettore e usano `TRAP #0` per passare in modo
+supervisore. I vettori non installati dal programma puntano a stub che
+fermano l'emulazione con un messaggio ("eccezione inattesa").
+
 ## La finestra
 
-`window.rs` usa `minifb`: buffer 320×256 ingrandito a pixel interi (scala
-configurabile), 50 frame al secondo. Il cursore del PC è nascosto perché il
+`window.rs` usa `minifb`. Un `Frontend` tiene aperta la finestra per tutta la
+sessione ed esegue in sequenza ciò che faceva la startup-sequence del disco:
+l'intro `rai` in una macchina emulata a sé (saltabile con un click o un tasto),
+la schermata dei credits (`u3.lbm`, decodificata da `iff.rs`), poi il gioco in
+una macchina nuova. Buffer 320×200 (o 320×256) ingrandito a pixel interi, 50
+frame al secondo. Il cursore del PC è nascosto perché il
 puntatore lo disegna il gioco. Avanti veloce automatico finché lo schermo è nero
 (caricamento) e con F11; F12 salva uno screenshot.
 

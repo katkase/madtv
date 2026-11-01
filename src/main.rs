@@ -7,7 +7,7 @@ use madtv::input::{self, Action};
 use madtv::machine::{Machine, StopReason};
 use madtv::os::vfs::Vfs;
 use madtv::render;
-use madtv::window::{self, WindowOpts};
+use madtv::window::{Frontend, RunEnd, WindowOpts};
 use std::path::{Path, PathBuf};
 
 const HELP: &str = "\
@@ -23,6 +23,7 @@ F11 tenuto premuto = avanti veloce, F12 = screenshot).
   --save-dir DIR     cartella per i salvataggi del gioco (default: save)
   --scale N          ingrandimento della finestra (default: 3)
   --no-audio         nessun suono
+  --no-intro         salta il logo Rainbow Arts e i credits
   --full-height      mostra tutte le 256 righe PAL (default: le 200 usate dal gioco)
   --mouse-ratio R    conteggi del mouse Amiga per pixel (default: 1.0)
   --cpu-speed P      velocità della CPU in % di un A500, oppure auto
@@ -45,6 +46,7 @@ F11 tenuto premuto = avanti veloce, F12 = screenshot).
   --wav FILE         (headless) registra l'audio del gioco in un file WAV
   --trace FILE       scrive ogni chiamata di sistema in FILE
   --dump FILE        salva la RAM emulata (2 MB) in FILE all'arresto
+  --program NOME     esegue un altro programma del disco 1 invece di mtv (diagnostica)
   --list             elenca i file dei dischi ed esce
   --help             questo messaggio
 ";
@@ -54,6 +56,7 @@ struct Opts {
     save_dir: PathBuf,
     scale: usize,
     no_audio: bool,
+    no_intro: bool,
     full_height: bool,
     mouse_ratio: f32,
     cpu_speed: Option<String>,
@@ -67,6 +70,7 @@ struct Opts {
     list: bool,
     dump: Option<PathBuf>,
     wav: Option<PathBuf>,
+    program: Option<String>,
 }
 
 fn parse_args() -> Result<Opts, String> {
@@ -75,6 +79,7 @@ fn parse_args() -> Result<Opts, String> {
         save_dir: "save".into(),
         scale: 3,
         no_audio: false,
+        no_intro: false,
         full_height: false,
         mouse_ratio: 1.0,
         cpu_speed: None,
@@ -88,6 +93,7 @@ fn parse_args() -> Result<Opts, String> {
         list: false,
         dump: None,
         wav: None,
+        program: None,
     };
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
@@ -100,6 +106,7 @@ fn parse_args() -> Result<Opts, String> {
             "--headless" => o.headless = true,
             "--full-height" => o.full_height = true,
             "--no-audio" => o.no_audio = true,
+            "--no-intro" => o.no_intro = true,
             "--cpu-speed" => o.cpu_speed = Some(val()?),
             "--frames" => o.frames = val()?.parse().map_err(|e| format!("{e}"))?,
             "--max-instr" => o.max_instr = val()?.parse().map_err(|e| format!("{e}"))?,
@@ -117,6 +124,7 @@ fn parse_args() -> Result<Opts, String> {
             "--list" => o.list = true,
             "--dump" => o.dump = Some(val()?.into()),
             "--wav" => o.wav = Some(val()?.into()),
+            "--program" => o.program = Some(val()?),
             "--help" | "-h" => {
                 print!("{HELP}");
                 std::process::exit(0);
@@ -197,9 +205,11 @@ fn main() {
         return;
     }
 
+    let prog = o.program.clone().unwrap_or_else(|| "mtv".into());
     let exe = disks[0]
-        .read_file("mtv")
-        .expect("eseguibile 'mtv' non trovato sul disco 1");
+        .read_file(&prog)
+        .unwrap_or_else(|_| panic!("eseguibile '{prog}' non trovato sul disco 1"));
+    let intro_disks = disks.clone();
     let mut m = Machine::new(Vfs::new(disks, o.save_dir.clone()));
     if let Some(t) = &o.trace {
         let f = std::fs::File::create(t).expect("impossibile creare il file di trace");
@@ -229,8 +239,21 @@ fn main() {
     }
     m.boot_os();
     // La startup-sequence originale lancia "mtv s".
-    m.load_executable(&exe, "s").expect("eseguibile non valido");
+    let args = match (&o.program, std::env::var("MADTV_ARGS")) {
+        (Some(_), Ok(a)) => a,
+        (Some(_), Err(_)) => String::new(),
+        (None, _) => "s".into(),
+    };
+    let args = args.as_str();
+    m.load_executable(&exe, args)
+        .expect("eseguibile non valido");
 
+    if std::env::var("MADTV_SEGS").is_ok() {
+        for (i, (a, size, kind)) in m.segments.iter().enumerate() {
+            println!("segmento {i}: {kind} ${a:06x}-${:06x}", a + size);
+        }
+        println!("pila: ${:06x}", m.cpu.a(7));
+    }
     let t0 = std::time::Instant::now();
     let reason = if o.headless {
         run_headless(&mut m, &o)
@@ -246,8 +269,24 @@ fn main() {
                     shot_dir: o.shot_dir.clone(),
                     mouse_ratio: o.mouse_ratio,
                     audio: !o.no_audio,
+                    rows: m.bus.custom.display.visible_rows,
                 };
-                window::run(&mut m, &wo).unwrap_or(StopReason::FrameLimit)
+                match Frontend::new(&wo) {
+                    None => StopReason::FrameLimit,
+                    Some(mut fe) => {
+                        let go_on = o.no_intro
+                            || !o.script.is_empty()
+                            || play_intro(&mut fe, &intro_disks, &o);
+                        if !go_on {
+                            StopReason::FrameLimit
+                        } else {
+                            match fe.run(&mut m, false) {
+                                RunEnd::Stopped(r) => r,
+                                RunEnd::Skipped | RunEnd::Closed => StopReason::FrameLimit,
+                            }
+                        }
+                    }
+                }
             }
         }
     };
@@ -320,6 +359,52 @@ fn step_goto(m: &mut Machine, target: &mut Option<(i32, i32)>) {
         *target = None; // arrivato (o bloccato dai limiti della schermata)
     } else if dx != 0 || dy != 0 {
         input::mouse_move(&mut m.bus.custom, dx, dy);
+    }
+}
+
+/// Intro originale, come nella startup-sequence del disco 1: il logo Rainbow
+/// Arts (`rai`, eseguito in una macchina a sé) e la schermata dei credits
+/// (`u3.lbm`, mostrata dal visualizzatore `v`; qui la decodifichiamo noi).
+/// Un click o un tasto saltano ciascuna parte. False se la finestra è stata chiusa.
+fn play_intro(fe: &mut Frontend, disks: &[Adf], o: &Opts) -> bool {
+    if let Ok(exe) = disks[0].read_file("rai") {
+        let mut intro = Machine::new(Vfs::new(disks.to_vec(), o.save_dir.clone()));
+        intro.bus.custom.display.visible_rows = o_rows(o);
+        intro.boot_os();
+        if intro.load_executable(&exe, "").is_ok() {
+            match fe.run(&mut intro, true) {
+                RunEnd::Closed => return false,
+                RunEnd::Stopped(StopReason::Exited(_)) | RunEnd::Skipped => {}
+                RunEnd::Stopped(r) => eprintln!("nota: intro interrotta ({})", describe(&r)),
+            }
+        }
+    }
+    if let Ok(data) = disks[0].read_file("u3.lbm") {
+        match madtv::iff::decode(&data) {
+            Ok(img) => {
+                // Adatta l'immagine alla larghezza dello schermo (320 pixel).
+                let mut px = vec![0u32; render::WIDTH * img.height];
+                for y in 0..img.height {
+                    for x in 0..img.width.min(render::WIDTH) {
+                        px[y * render::WIDTH + x] = img.pixels[y * img.width + x];
+                    }
+                }
+                // Fino a un click o un tasto, al massimo 10 secondi.
+                if !fe.show_image(&px, 500) {
+                    return false;
+                }
+            }
+            Err(e) => eprintln!("nota: credits non mostrati ({e})"),
+        }
+    }
+    true
+}
+
+fn o_rows(o: &Opts) -> usize {
+    if o.full_height {
+        render::HEIGHT
+    } else {
+        render::GAME_HEIGHT
     }
 }
 

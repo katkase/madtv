@@ -49,6 +49,9 @@ tabella di caratteri `LQXWMNbOFJERD;<=>?@ABCG`.
   cookie-cut), con attesa `btst #6,DMACONR` e una chiamata per bitplane;
   parametri nei registri.
 - Firma nascosta nei dati: *"I hate C, but worse, AmigaOS and BCPL - Thomas B."*
+- Crediti ufficiali (schermata `u3.lbm`): Project Manager Ralph Stock,
+  Programming PC Stefan Hoffmann, Programming Christian Krämer, Graphics Thomas
+  Andrae, Sound Rudi Stember.
 
 ### Comportamento a runtime (dall'emulazione, fase 1)
 

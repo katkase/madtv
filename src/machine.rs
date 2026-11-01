@@ -429,6 +429,19 @@ impl Machine {
 
                     FRAME_CYCLES - self.bus.custom.cycles % FRAME_CYCLES
                 }
+                // TRAP, F-line, BKPT, ILLEGAL: come sull'hardware, la CPU prende
+                // l'eccezione e salta al vettore. Le intro lo usano per passare in
+                // modo supervisore (TRAP #0 con il vettore puntato sul proprio codice);
+                // se il vettore è ancora il nostro, la trap interna segnala l'errore.
+                StepResult::TrapInstruction { trap_num } => {
+                    self.cpu.take_trap_exception(&mut self.bus, trap_num).max(4) as u64
+                }
+                StepResult::FlineTrap { .. } => {
+                    self.cpu.take_fline_exception(&mut self.bus).max(4) as u64
+                }
+                StepResult::IllegalInstruction { .. } => {
+                    self.cpu.take_illegal_exception(&mut self.bus).max(4) as u64
+                }
                 other => {
                     return StopReason::Exception(format!("{other:?} a ${:06x}", self.cpu.ppc));
                 }

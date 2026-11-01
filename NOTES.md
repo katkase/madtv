@@ -22,7 +22,7 @@ scoperte, decisioni e prossimi passi. Va aggiornato alla fine di ogni sessione.
 
 - Fase 1: avvio fino alla schermata di selezione dei giocatori.
 - Fase 2: renderer riga per riga, sprite, finestra, mouse, tastiera, script.
-- Fase 3: audio.
+- Fase 3: audio, intro originale (logo Rainbow Arts e credits).
 - Correzioni dopo la prova di Pam su Windows: puntatore che sfarfallava
   (soprattutto ai bordi), ritardo nell'apertura delle finestre del gioco,
   puntatore che saltava sulle zone con etichetta al passaggio del mouse,
@@ -164,6 +164,34 @@ Hardware usato direttamente:
   lo stato dei canali; `cargo run --release --example audio_check` verifica il
   dispositivo audio.
 
+## Intro (logo Rainbow Arts e credits)
+
+- **`rai`** (logo Rainbow Arts, con la miccia che brucia lungo la cornice e il
+  rumore crepitante "di vetri" segnalato da Pam in WinUAE) gira nell'emulatore
+  in una macchina a sé, prima del gioco. Usa due chiamate a exec e poi prende
+  il controllo con `TRAP #0` dopo aver puntato il vettore della trap sul
+  proprio codice: per questo il ciclo principale ora fa prendere alla CPU le
+  vere eccezioni TRAP/F-line/ILLEGAL (salto al vettore) invece di fermarsi.
+  Lavora a indirizzi fissi oltre `$030000` (copper list, 4 bitplane, finestra
+  video di 220 righe: le ultime 20 non entrano nella finestra a 200 righe).
+  Dura 658 frame (13 s) e termina da sé. Ai bordi compaiono righe rosse, gialle
+  e blu che sfumano con il logo: sono pixel disegnati dall'intro stessa
+  (memoria libera e azzerata nel nostro emulatore), probabilmente un effetto
+  voluto; da confermare in WinUAE.
+- **Credits**: `v u3.lbm`. Il visualizzatore `v` userebbe intuition
+  (OpenScreen) e graphics; invece di emularlo, decodifichiamo noi l'immagine
+  IFF ILBM (`iff.rs`: 320×256, 32 colori, ByteRun1) e la mostriamo fino a un
+  click o un tasto, al massimo 10 secondi (comportamento dell'originale da
+  verificare).
+- **Crediti ufficiali** (dall'immagine): Project Manager Ralph Stock,
+  Programming PC Stefan Hoffmann, Programming Christian Krämer, Graphics
+  Thomas Andrae, Sound Rudi Stember. La firma nascosta nell'eseguibile Amiga
+  ("I hate C, but worse, AmigaOS and BCPL - Thomas B.") resta senza un
+  autore certo.
+- Strumenti: `--program NOME` esegue un altro programma del disco 1 (con
+  `MADTV_ARGS` per gli argomenti); `cargo run --release --example show_iff
+  -- u3.lbm out.png` decodifica un'immagine IFF.
+
 ## Confronto con WinUAE (1 novembre 2026)
 
 Configurazione che funziona: A500, KS 1.3 rev 34.5, 1 MB Chip + 512 KB Slow,
@@ -175,8 +203,8 @@ che il porting per ora salta. Schermata del palinsesto e menu muto coincidono.
 ## Prossimi passi
 
 1. Conferma all'ascolto (Pam, su Windows).
-2. Intro originale: `rai` (logo Rainbow Arts) e la schermata dei credits
-   `u3.lbm` (immagine IFF mostrata dal visualizzatore `v`) prima del gioco.
+2. Verificare in WinUAE: righe colorate ai bordi durante il logo Rainbow
+   Arts, e se la schermata dei credits aspetta un click o se ne va da sola.
 3. Pulizia: limiti noti del renderer (priorità sprite, scroll fine) se
    qualche schermata ne ha bisogno.
 4. Fase successiva, quando si vorrà: riscrittura in Rust delle funzioni del

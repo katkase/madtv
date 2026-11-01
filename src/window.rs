@@ -1,13 +1,17 @@
-//! Finestra di gioco (crate `minifb`): 50 frame al secondo, mouse e tastiera.
+//! Finestra di gioco (crate `minifb`), audio e input.
+//!
+//! La finestra resta aperta per tutta la sessione ([`Frontend`]) e può
+//! eseguire in sequenza più programmi emulati (l'intro `rai`, poi il gioco) e
+//! mostrare immagini (la schermata dei credits), come faceva la
+//! startup-sequence del disco originale.
 //!
 //! Tasti speciali: F10 = turbo automatico sì/no, F11 (tenuto premuto) = avanti
-//! veloce, F12 = screenshot.
+//! veloce, F12 = screenshot. Durante l'intro un click o un tasto la salta.
 //!
 //! Il gioco disegna da sé il puntatore del mouse, quindi il cursore di sistema
 //! viene nascosto. I movimenti del mouse del PC vengono convertiti in conteggi
 //! del mouse Amiga (vedi `input.rs`). Quando la posizione del puntatore del
-//! gioco è leggibile (`Machine::game_pointer`) l'allineamento è assoluto: a ogni
-//! frame inviamo la differenza tra il cursore del PC e il puntatore del gioco.
+//! gioco è leggibile (`Machine::game_mouse`) l'allineamento è assoluto.
 
 use crate::audio::AudioOut;
 use crate::input;
@@ -23,87 +27,197 @@ pub struct WindowOpts {
     pub mouse_ratio: f32,
     /// Uscita audio attiva.
     pub audio: bool,
+    /// Righe mostrate (200 o 256).
+    pub rows: usize,
 }
 
-/// Esegue il gioco in una finestra finché non viene chiusa o il programma termina.
-pub fn run(m: &mut Machine, o: &WindowOpts) -> Option<StopReason> {
-    let s = o.scale.max(1);
-    let rows = m.bus.custom.display.visible_rows;
-    let (w, h) = (WIDTH * s, rows * s);
-    let mut win = match Window::new("Mad TV", w, h, WindowOptions::default()) {
-        Ok(w) => w,
-        Err(e) => {
-            eprintln!("impossibile aprire la finestra: {e}");
-            return None;
+/// Come è finita l'esecuzione di un programma nella finestra.
+pub enum RunEnd {
+    /// Il programma è terminato o si è fermato (con il motivo).
+    Stopped(StopReason),
+    /// L'utente ha saltato (intro).
+    Skipped,
+    /// La finestra è stata chiusa.
+    Closed,
+}
+
+pub struct Frontend {
+    win: Window,
+    audio: Option<AudioOut>,
+    buf: Vec<u32>,
+    scale: usize,
+    rows: usize,
+    shot_dir: PathBuf,
+    mouse_ratio: f32,
+    shots: u32,
+    warned_rows: bool,
+}
+
+impl Frontend {
+    pub fn new(o: &WindowOpts) -> Option<Frontend> {
+        let s = o.scale.max(1);
+        let (w, h) = (WIDTH * s, o.rows * s);
+        let mut win = match Window::new("Mad TV", w, h, WindowOptions::default()) {
+            Ok(w) => w,
+            Err(e) => {
+                eprintln!("impossibile aprire la finestra: {e}");
+                return None;
+            }
+        };
+        win.set_cursor_visibility(false);
+        // Audio: se c'è un dispositivo, è la scheda audio a dettare il ritmo dei
+        // frame; altrimenti la finestra limita il ritmo a 50 frame al secondo.
+        let audio = if o.audio { AudioOut::open() } else { None };
+        match &audio {
+            Some(a) => {
+                win.set_target_fps(0);
+                println!("audio: {} a {} Hz", a.device_name, a.rate);
+            }
+            None => {
+                win.set_target_fps(50);
+                if o.audio {
+                    println!("audio: nessun dispositivo disponibile, gioco senza suono");
+                }
+            }
         }
-    };
-    win.set_cursor_visibility(false);
-    // Audio: se c'è un dispositivo, è la scheda audio a dettare il ritmo dei
-    // frame; altrimenti la finestra limita il ritmo a 50 frame al secondo.
-    let audio = if o.audio { AudioOut::open() } else { None };
-    match &audio {
-        Some(a) => {
+        Some(Frontend {
+            win,
+            audio,
+            buf: vec![0; w * h],
+            scale: s,
+            rows: o.rows,
+            shot_dir: o.shot_dir.clone(),
+            mouse_ratio: o.mouse_ratio,
+            shots: 0,
+            warned_rows: false,
+        })
+    }
+
+    /// Prepara una macchina per l'uscita audio di questa finestra.
+    fn attach_audio(&self, m: &mut Machine) {
+        if let Some(a) = &self.audio {
             m.bus.custom.paula.set_rate(a.rate);
             m.bus.custom.paula.enabled = true;
-            win.set_target_fps(0);
-            println!("audio: {} a {} Hz", a.device_name, a.rate);
         }
-        None => {
-            win.set_target_fps(50);
-            if o.audio {
-                println!("audio: nessun dispositivo disponibile, gioco senza suono");
+    }
+
+    /// Aspetta che la scheda audio abbia consumato abbastanza campioni
+    /// (3 frame in coda, 60 ms, bastano a evitare buchi).
+    fn pace(&self) {
+        if let Some(a) = &self.audio {
+            let target = a.rate as usize * 3 / 50;
+            while a.queued_frames() > target {
+                std::thread::sleep(std::time::Duration::from_millis(1));
             }
         }
     }
-    // Audio da tenere in coda: 3 frame (60 ms) bastano a evitare buchi.
-    let target_queue = audio
-        .as_ref()
-        .map(|a| a.rate as usize * 3 / 50)
-        .unwrap_or(0);
-    let mut buf = vec![0u32; w * h];
-    let mut last_pos: Option<(f32, f32)> = None;
-    let mut shots = 0u32;
-    let mut warned_rows = false;
 
-    while win.is_open() {
-        // --- input ---
-        if let Some((mx, my)) = win.get_mouse_pos(MouseMode::Clamp) {
-            let (gx, gy) = (mx / s as f32, my / s as f32);
-            match m.game_mouse() {
-                // Allineamento assoluto: spostiamo il mouse Amiga della differenza
-                // tra il cursore del PC e il puntatore del gioco.
-                Some(g) => {
-                    let (dx, dy) = input::pointer_step(&g, (gx as i32, gy as i32));
-                    if dx != 0 || dy != 0 {
-                        input::mouse_move(&mut m.bus.custom, dx, dy);
-                    }
-                    last_pos = Some((gx, gy));
+    fn screenshot(&mut self, pixels: &[u32]) {
+        std::fs::create_dir_all(&self.shot_dir).ok();
+        self.shots += 1;
+        let p = self
+            .shot_dir
+            .join(format!("screenshot{:03}.png", self.shots));
+        let n = WIDTH * self.rows;
+        if crate::render::save_png(&pixels[..n.min(pixels.len())], &p).is_ok() {
+            println!("screenshot: {}", p.display());
+        }
+    }
+
+    /// Ingrandisce un'immagine larga WIDTH pixel e la mostra. False se la finestra è chiusa.
+    fn present(&mut self, src: &[u32]) -> bool {
+        let s = self.scale;
+        let w = WIDTH * s;
+        for y in 0..self.rows {
+            let drow = &mut self.buf[y * s * w..(y * s + 1) * w];
+            if let Some(srow) = src.get(y * WIDTH..(y + 1) * WIDTH) {
+                for (x, &p) in srow.iter().enumerate() {
+                    drow[x * s..(x + 1) * s].fill(p);
                 }
-                // Movimento relativo, se la posizione del puntatore non è disponibile.
-                None => {
-                    if let Some((lx, ly)) = last_pos {
-                        let dx = ((gx - lx) * o.mouse_ratio).round() as i32;
-                        let dy = ((gy - ly) * o.mouse_ratio).round() as i32;
-                        if dx != 0 || dy != 0 {
-                            input::mouse_move(&mut m.bus.custom, dx, dy);
-                            last_pos = Some((
-                                lx + dx as f32 / o.mouse_ratio,
-                                ly + dy as f32 / o.mouse_ratio,
-                            ));
-                        }
-                    } else {
-                        last_pos = Some((gx, gy));
-                    }
-                }
+            } else {
+                drow.fill(0);
+            }
+            for k in 1..s {
+                self.buf
+                    .copy_within(y * s * w..(y * s + 1) * w, (y * s + k) * w);
             }
         }
-        input::mouse_buttons(
-            &mut m.bus.custom,
-            win.get_mouse_down(MouseButton::Left),
-            win.get_mouse_down(MouseButton::Right),
-        );
-        for k in win.get_keys_pressed(KeyRepeat::No) {
-            if k == Key::F10 {
+        self.win
+            .update_with_buffer(&self.buf, w, self.rows * s)
+            .is_ok()
+            && self.win.is_open()
+    }
+
+    /// Mostra un'immagine fissa finché l'utente non clicca o preme un tasto,
+    /// al massimo per `max_frames` frame. False se la finestra è stata chiusa.
+    pub fn show_image(&mut self, pixels: &[u32], max_frames: u32) -> bool {
+        // Ignora un tasto o un click già premuti all'ingresso (per esempio quello
+        // che ha saltato la schermata precedente).
+        let mut armed = false;
+        for _ in 0..max_frames {
+            if !self.win.is_open() {
+                return false;
+            }
+            let pressed = self.any_input();
+            if armed && pressed {
+                break;
+            }
+            if !pressed {
+                armed = true;
+            }
+            if self.win.is_key_pressed(Key::F12, KeyRepeat::No) {
+                self.screenshot(pixels);
+            }
+            if self.audio.is_some() {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            if !self.present(pixels) {
+                return false;
+            }
+        }
+        true
+    }
+
+    fn any_input(&self) -> bool {
+        self.win.get_mouse_down(MouseButton::Left)
+            || self.win.get_mouse_down(MouseButton::Right)
+            || !self
+                .win
+                .get_keys()
+                .into_iter()
+                .filter(|k| !matches!(k, Key::F12))
+                .collect::<Vec<_>>()
+                .is_empty()
+    }
+
+    /// Esegue una macchina emulata nella finestra. Con `skippable` (intro) un
+    /// click o un tasto la interrompe.
+    pub fn run(&mut self, m: &mut Machine, skippable: bool) -> RunEnd {
+        self.attach_audio(m);
+        let s = self.scale as f32;
+        let mut last_pos: Option<(f32, f32)> = None;
+        let mut armed = false;
+        while self.win.is_open() {
+            // --- intro: un click o un tasto la saltano ---
+            if skippable {
+                let pressed = self.any_input();
+                if armed && pressed {
+                    if let Some(a) = &self.audio {
+                        a.clear();
+                    }
+                    return RunEnd::Skipped;
+                }
+                if !pressed {
+                    armed = true;
+                }
+            } else {
+                self.game_input(m, s, &mut last_pos);
+            }
+            if self.win.is_key_pressed(Key::F12, KeyRepeat::No) {
+                let px = m.bus.custom.display.front.clone();
+                self.screenshot(&px);
+            }
+            if self.win.is_key_pressed(Key::F10, KeyRepeat::No) {
                 // Turbo automatico (default) oppure velocità sempre fissa.
                 m.auto_turbo = !m.auto_turbo;
                 if m.auto_turbo {
@@ -111,87 +225,106 @@ pub fn run(m: &mut Machine, o: &WindowOpts) -> Option<StopReason> {
                 } else {
                     println!("CPU: velocità fissa {}%", m.cpu_speed);
                 }
-                continue;
             }
-            if k == Key::F12 {
-                std::fs::create_dir_all(&o.shot_dir).ok();
-                shots += 1;
-                let p = o.shot_dir.join(format!("screenshot{shots:03}.png"));
-                if m.bus.custom.display.save_png(&p).is_ok() {
-                    println!("screenshot: {}", p.display());
+
+            // --- emulazione ---
+            // Avanti veloce: automatico finché lo schermo è nero (caricamento
+            // iniziale del gioco), oppure tenendo premuto F11.
+            let black = !skippable && m.bus.custom.display.last_active_lines == 0;
+            let frames = if black {
+                25
+            } else if self.win.is_key_down(Key::F11) {
+                8
+            } else {
+                1
+            };
+            if frames == 1 {
+                self.pace();
+            }
+            for _ in 0..frames {
+                if let Some(stop) = m.run_frame() {
+                    return RunEnd::Stopped(stop);
                 }
-                continue;
             }
+            let samples = m.bus.custom.paula.take();
+            if let Some(a) = &self.audio {
+                if frames == 1 {
+                    a.push(&samples);
+                } else {
+                    a.clear(); // avanti veloce: niente audio accelerato
+                }
+            }
+
+            // Se una schermata disegnasse oltre le righe mostrate, avvisa una volta.
+            if !self.warned_rows && !skippable {
+                if let Some((_, last)) = m.bus.custom.display.used_rows {
+                    if last >= self.rows {
+                        eprintln!(
+                            "nota: il gioco ha disegnato oltre la riga {}; avvia con --full-height per vederla",
+                            self.rows
+                        );
+                        self.warned_rows = true;
+                    }
+                }
+            }
+
+            let px = std::mem::take(&mut m.bus.custom.display.front);
+            let ok = self.present(&px);
+            m.bus.custom.display.front = px;
+            if !ok {
+                break;
+            }
+        }
+        RunEnd::Closed
+    }
+
+    /// Mouse e tastiera verso il gioco.
+    fn game_input(&mut self, m: &mut Machine, s: f32, last_pos: &mut Option<(f32, f32)>) {
+        if let Some((mx, my)) = self.win.get_mouse_pos(MouseMode::Clamp) {
+            let (gx, gy) = (mx / s, my / s);
+            match m.game_mouse() {
+                // Allineamento assoluto con le variabili del gioco.
+                Some(g) => {
+                    let (dx, dy) = input::pointer_step(&g, (gx as i32, gy as i32));
+                    if dx != 0 || dy != 0 {
+                        input::mouse_move(&mut m.bus.custom, dx, dy);
+                    }
+                    *last_pos = Some((gx, gy));
+                }
+                // Movimento relativo, se la posizione del puntatore non è disponibile.
+                None => {
+                    if let Some((lx, ly)) = *last_pos {
+                        let dx = ((gx - lx) * self.mouse_ratio).round() as i32;
+                        let dy = ((gy - ly) * self.mouse_ratio).round() as i32;
+                        if dx != 0 || dy != 0 {
+                            input::mouse_move(&mut m.bus.custom, dx, dy);
+                            *last_pos = Some((
+                                lx + dx as f32 / self.mouse_ratio,
+                                ly + dy as f32 / self.mouse_ratio,
+                            ));
+                        }
+                    } else {
+                        *last_pos = Some((gx, gy));
+                    }
+                }
+            }
+        }
+        input::mouse_buttons(
+            &mut m.bus.custom,
+            self.win.get_mouse_down(MouseButton::Left),
+            self.win.get_mouse_down(MouseButton::Right),
+        );
+        for k in self.win.get_keys_pressed(KeyRepeat::No) {
             if let Some(code) = amiga_key(k) {
                 input::key(&mut m.bus.custom, code, true);
             }
         }
-        for k in win.get_keys_released() {
+        for k in self.win.get_keys_released() {
             if let Some(code) = amiga_key(k) {
                 input::key(&mut m.bus.custom, code, false);
             }
         }
-
-        // --- emulazione ---
-        // Avanti veloce: automatico finché lo schermo è nero (caricamento
-        // iniziale), oppure tenendo premuto F11.
-        let black = m.bus.custom.display.last_active_lines == 0;
-        let frames = if black {
-            25
-        } else if win.is_key_down(Key::F11) {
-            8
-        } else {
-            1
-        };
-        if let (Some(a), 1) = (&audio, frames) {
-            // Aspetta che la scheda audio abbia consumato abbastanza campioni.
-            while a.queued_frames() > target_queue {
-                std::thread::sleep(std::time::Duration::from_millis(1));
-            }
-        }
-        for _ in 0..frames {
-            if let Some(stop) = m.run_frame() {
-                return Some(stop);
-            }
-        }
-        let samples = m.bus.custom.paula.take();
-        if let Some(a) = &audio {
-            if frames == 1 {
-                a.push(&samples);
-            } else {
-                a.clear(); // avanti veloce: niente audio accelerato
-            }
-        }
-
-        // Se una schermata disegnasse oltre le righe mostrate, avvisa una volta.
-        if !warned_rows {
-            if let Some((_, last)) = m.bus.custom.display.used_rows {
-                if last >= rows {
-                    eprintln!(
-                        "nota: il gioco ha disegnato oltre la riga {rows}; avvia con --full-height per vederla"
-                    );
-                    warned_rows = true;
-                }
-            }
-        }
-
-        // --- presentazione (ingrandimento a pixel interi) ---
-        let src = &m.bus.custom.display.front;
-        for y in 0..rows {
-            let srow = &src[y * WIDTH..(y + 1) * WIDTH];
-            let drow = &mut buf[y * s * w..(y * s + 1) * w];
-            for (x, &p) in srow.iter().enumerate() {
-                drow[x * s..(x + 1) * s].fill(p);
-            }
-            for k in 1..s {
-                buf.copy_within(y * s * w..(y * s + 1) * w, (y * s + k) * w);
-            }
-        }
-        if win.update_with_buffer(&buf, w, h).is_err() {
-            break;
-        }
     }
-    None
 }
 
 /// Tasto del PC → codice tasto Amiga.
@@ -253,7 +386,6 @@ fn amiga_key(k: Key) -> Option<u8> {
         F7 => "F7",
         F8 => "F8",
         F9 => "F9",
-        F10 => "F10",
         Insert => "HELP",
         LeftShift => "LSHIFT",
         RightShift => "RSHIFT",

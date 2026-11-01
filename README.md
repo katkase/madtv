@@ -50,8 +50,10 @@ MTV2). Poi avvia il gioco:
 target\release\madtv.exe
 ```
 
-Il caricamento iniziale viene accelerato automaticamente (schermo nero per
-pochi secondi). Nella finestra la CPU emulata ha la velocità di un A500, con un
+Come sul disco originale, prima del gioco partono il logo Rainbow Arts e la
+schermata dei credits (un click o un tasto li saltano; `--no-intro` li
+disattiva). Il caricamento del gioco viene accelerato automaticamente (schermo
+nero per pochi secondi). Nella finestra la CPU emulata ha la velocità di un A500, con un
 **turbo automatico** durante i caricamenti dal disco: cambi di schermata e
 aperture delle stanze sono più rapidi, mentre animazioni e ritmo del gioco
 restano quelli originali. Comandi:
@@ -71,6 +73,7 @@ Opzioni utili (`madtv --help` per l'elenco completo):
 | `--scale N` | ingrandimento della finestra (default 3, cioè 960×600) |
 | `--full-height` | mostra tutte le 256 righe PAL invece delle 200 usate dal gioco |
 | `--no-audio` | gioca senza suono |
+| `--no-intro` | salta il logo Rainbow Arts e i credits |
 | `--headless --wav audio.wav` | registra in un file l'audio prodotto dal gioco |
 | `--cpu-speed P` | velocità della CPU: `auto` (default nella finestra) o una percentuale fissa di un A500, es. `300` |
 | `--headless --frames N` | nessuna finestra: esegue N frame (50 = 1 secondo) e salva `shots\final.png` |
@@ -99,7 +102,8 @@ src/
   paula.rs      audio: i 4 canali di Paula, mixaggio e filtri
   audio.rs      uscita verso la scheda audio del PC (cpal)
   input.rs      mouse, tastiera, script di azioni automatiche
-  window.rs     finestra (minifb), 50 frame al secondo
+  iff.rs        decodifica delle immagini IFF ILBM (schermata dei credits)
+  window.rs     finestra (minifb): intro, credits, gioco
   machine.rs    CPU + bus + sistema operativo; ciclo principale
   os/           AmigaOS emulato: exec, dos, graphics, intuition, file system virtuale
   main.rs       programma a riga di comando
