@@ -148,30 +148,50 @@ impl Frontend {
             && self.win.is_open()
     }
 
-    /// Mostra un'immagine fissa finché l'utente non clicca o preme un tasto,
-    /// al massimo per `max_frames` frame. False se la finestra è stata chiusa.
-    pub fn show_image(&mut self, pixels: &[u32], max_frames: u32) -> bool {
+    /// Mostra un'immagine con l'effetto "a tendina" dell'originale: le righe si
+    /// scoprono dall'alto verso il basso in `wipe_frames` frame, poi l'immagine
+    /// resta finché l'utente non clicca o preme un tasto. False se la finestra
+    /// è stata chiusa.
+    pub fn show_image(&mut self, pixels: &[u32], wipe_frames: u32) -> bool {
+        let total_rows = self.rows;
+        let mut shown = vec![0u32; WIDTH * total_rows];
+        let mut frame = 0u32;
         // Ignora un tasto o un click già premuti all'ingresso (per esempio quello
         // che ha saltato la schermata precedente).
         let mut armed = false;
-        for _ in 0..max_frames {
+        loop {
             if !self.win.is_open() {
                 return false;
             }
+            // Tendina: righe visibili in questo frame.
+            let visible = if wipe_frames == 0 {
+                total_rows
+            } else {
+                ((frame as usize + 1) * total_rows / wipe_frames as usize).min(total_rows)
+            };
+            let n = (WIDTH * visible).min(pixels.len());
+            shown[..n].copy_from_slice(&pixels[..n]);
+            frame += 1;
+            let revealed = visible >= total_rows;
+            // L'attesa del click inizia a tendina completata, come nell'originale.
             let pressed = self.any_input();
-            if armed && pressed {
+            if revealed && armed && pressed {
                 break;
             }
             if !pressed {
                 armed = true;
             }
             if self.win.is_key_pressed(Key::F12, KeyRepeat::No) {
-                self.screenshot(pixels);
+                let px = shown.clone();
+                self.screenshot(&px);
             }
             if self.audio.is_some() {
                 std::thread::sleep(std::time::Duration::from_millis(20));
             }
-            if !self.present(pixels) {
+            let px = std::mem::take(&mut shown);
+            let ok = self.present(&px);
+            shown = px;
+            if !ok {
                 return false;
             }
         }

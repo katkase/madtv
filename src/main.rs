@@ -364,8 +364,9 @@ fn step_goto(m: &mut Machine, target: &mut Option<(i32, i32)>) {
 
 /// Intro originale, come nella startup-sequence del disco 1: il logo Rainbow
 /// Arts (`rai`, eseguito in una macchina a sé) e la schermata dei credits
-/// (`u3.lbm`, mostrata dal visualizzatore `v`; qui la decodifichiamo noi).
-/// Un click o un tasto saltano ciascuna parte. False se la finestra è stata chiusa.
+/// (`u3.lbm`, mostrata dal visualizzatore `v`; qui la decodifichiamo noi e ne
+/// riproduciamo l'effetto a tendina e l'attesa del click). Un click o un tasto
+/// saltano il logo e chiudono i credits. False se la finestra è stata chiusa.
 fn play_intro(fe: &mut Frontend, disks: &[Adf], o: &Opts) -> bool {
     if let Ok(exe) = disks[0].read_file("rai") {
         let mut intro = Machine::new(Vfs::new(disks.to_vec(), o.save_dir.clone()));
@@ -389,8 +390,9 @@ fn play_intro(fe: &mut Frontend, disks: &[Adf], o: &Opts) -> bool {
                         px[y * render::WIDTH + x] = img.pixels[y * img.width + x];
                     }
                 }
-                // Fino a un click o un tasto, al massimo 10 secondi.
-                if !fe.show_image(&px, 500) {
+                // Effetto a tendina dall'alto (1 secondo), poi si attende un
+                // click o un tasto, come nell'originale.
+                if !fe.show_image(&px, CREDITS_WIPE_FRAMES) {
                     return false;
                 }
             }
@@ -399,6 +401,9 @@ fn play_intro(fe: &mut Frontend, disks: &[Adf], o: &Opts) -> bool {
     }
     true
 }
+
+/// Durata della tendina dei credits, in frame (50 = 1 secondo).
+const CREDITS_WIPE_FRAMES: u32 = 50;
 
 fn o_rows(o: &Opts) -> usize {
     if o.full_height {

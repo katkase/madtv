@@ -180,9 +180,11 @@ Hardware usato direttamente:
   voluto; da confermare in WinUAE.
 - **Credits**: `v u3.lbm`. Il visualizzatore `v` userebbe intuition
   (OpenScreen) e graphics; invece di emularlo, decodifichiamo noi l'immagine
-  IFF ILBM (`iff.rs`: 320×256, 32 colori, ByteRun1) e la mostriamo fino a un
-  click o un tasto, al massimo 10 secondi (comportamento dell'originale da
-  verificare).
+  IFF ILBM (`iff.rs`: 320×256, 32 colori, ByteRun1) e riproduciamo il
+  comportamento dell'originale osservato da Pam in WinUAE: comparsa con effetto
+  a tendina dall'alto verso il basso, nessun audio, attesa di un click per
+  proseguire. La durata della tendina (`CREDITS_WIPE_FRAMES` in `main.rs`, ora
+  1 secondo) è una stima da confrontare con l'originale.
 - **Crediti ufficiali** (dall'immagine): Project Manager Ralph Stock,
   Programming PC Stefan Hoffmann, Programming Christian Krämer, Graphics
   Thomas Andrae, Sound Rudi Stember. La firma nascosta nell'eseguibile Amiga
@@ -204,7 +206,7 @@ che il porting per ora salta. Schermata del palinsesto e menu muto coincidono.
 
 1. Conferma all'ascolto (Pam, su Windows).
 2. Verificare in WinUAE: righe colorate ai bordi durante il logo Rainbow
-   Arts, e se la schermata dei credits aspetta un click o se ne va da sola.
+   Arts; velocità della tendina dei credits.
 3. Pulizia: limiti noti del renderer (priorità sprite, scroll fine) se
    qualche schermata ne ha bisogno.
 4. Fase successiva, quando si vorrà: riscrittura in Rust delle funzioni del

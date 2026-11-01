@@ -50,9 +50,9 @@ MTV2). Poi avvia il gioco:
 target\release\madtv.exe
 ```
 
-Come sul disco originale, prima del gioco partono il logo Rainbow Arts e la
-schermata dei credits (un click o un tasto li saltano; `--no-intro` li
-disattiva). Il caricamento del gioco viene accelerato automaticamente (schermo
+Come sul disco originale, prima del gioco partono il logo Rainbow Arts (un
+click o un tasto lo saltano) e la schermata dei credits, che scende a tendina e
+attende un click; `--no-intro` li salta entrambi. Il caricamento del gioco viene accelerato automaticamente (schermo
 nero per pochi secondi). Nella finestra la CPU emulata ha la velocità di un A500, con un
 **turbo automatico** durante i caricamenti dal disco: cambi di schermata e
 aperture delle stanze sono più rapidi, mentre animazioni e ritmo del gioco
