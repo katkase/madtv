@@ -27,8 +27,11 @@ pub struct WindowOpts {
     pub mouse_ratio: f32,
     /// Uscita audio attiva.
     pub audio: bool,
-    /// Righe mostrate (200 o 256).
+    /// Righe del display mostrate (220 o 256): le 200 del gioco più quelle
+    /// che finiscono nel margine inferiore.
     pub rows: usize,
+    /// Margine intorno all'immagine, in pixel del gioco.
+    pub margin: usize,
 }
 
 /// Come è finita l'esecuzione di un programma nella finestra.
@@ -47,6 +50,7 @@ pub struct Frontend {
     buf: Vec<u32>,
     scale: usize,
     rows: usize,
+    margin: usize,
     shot_dir: PathBuf,
     mouse_ratio: f32,
     shots: u32,
@@ -56,7 +60,9 @@ pub struct Frontend {
 impl Frontend {
     pub fn new(o: &WindowOpts) -> Option<Frontend> {
         let s = o.scale.max(1);
-        let (w, h) = (WIDTH * s, o.rows * s);
+        // Margine a sinistra, a destra e in alto; in basso il margine è occupato
+        // dalle righe del display oltre la 200 (o.rows le comprende già).
+        let (w, h) = ((WIDTH + 2 * o.margin) * s, (o.margin + o.rows) * s);
         let mut win = match Window::new("Mad TV", w, h, WindowOptions::default()) {
             Ok(w) => w,
             Err(e) => {
@@ -86,6 +92,7 @@ impl Frontend {
             buf: vec![0; w * h],
             scale: s,
             rows: o.rows,
+            margin: o.margin,
             shot_dir: o.shot_dir.clone(),
             mouse_ratio: o.mouse_ratio,
             shots: 0,
@@ -118,34 +125,41 @@ impl Frontend {
         let p = self
             .shot_dir
             .join(format!("screenshot{:03}.png", self.shots));
-        let n = WIDTH * self.rows;
+        // Lo screenshot contiene l'area del gioco (320×200), senza margini.
+        let n = WIDTH * crate::render::GAME_HEIGHT.min(self.rows);
         if crate::render::save_png(&pixels[..n.min(pixels.len())], &p).is_ok() {
             println!("screenshot: {}", p.display());
         }
     }
 
-    /// Ingrandisce un'immagine larga WIDTH pixel e la mostra. False se la finestra è chiusa.
+    /// Ingrandisce un'immagine larga WIDTH pixel e la mostra dentro il margine.
+    /// False se la finestra è chiusa.
     fn present(&mut self, src: &[u32]) -> bool {
         let s = self.scale;
-        let w = WIDTH * s;
+        let mg = self.margin;
+        let w = (WIDTH + 2 * mg) * s;
+        let h = (mg + self.rows) * s;
+        // Margine superiore: nero.
+        self.buf[..mg * s * w].fill(0);
         for y in 0..self.rows {
-            let drow = &mut self.buf[y * s * w..(y * s + 1) * w];
-            if let Some(srow) = src.get(y * WIDTH..(y + 1) * WIDTH) {
-                for (x, &p) in srow.iter().enumerate() {
-                    drow[x * s..(x + 1) * s].fill(p);
+            let top = (mg + y) * s;
+            let drow = &mut self.buf[top * w..(top + 1) * w];
+            drow[..mg * s].fill(0);
+            drow[(mg + WIDTH) * s..].fill(0);
+            let dst = &mut drow[mg * s..(mg + WIDTH) * s];
+            match src.get(y * WIDTH..(y + 1) * WIDTH) {
+                Some(srow) => {
+                    for (x, &p) in srow.iter().enumerate() {
+                        dst[x * s..(x + 1) * s].fill(p);
+                    }
                 }
-            } else {
-                drow.fill(0);
+                None => dst.fill(0),
             }
             for k in 1..s {
-                self.buf
-                    .copy_within(y * s * w..(y * s + 1) * w, (y * s + k) * w);
+                self.buf.copy_within(top * w..(top + 1) * w, (top + k) * w);
             }
         }
-        self.win
-            .update_with_buffer(&self.buf, w, self.rows * s)
-            .is_ok()
-            && self.win.is_open()
+        self.win.update_with_buffer(&self.buf, w, h).is_ok() && self.win.is_open()
     }
 
     /// Mostra un'immagine con l'effetto "a tendina" dell'originale: le righe si
@@ -301,7 +315,8 @@ impl Frontend {
     /// Mouse e tastiera verso il gioco.
     fn game_input(&mut self, m: &mut Machine, s: f32, last_pos: &mut Option<(f32, f32)>) {
         if let Some((mx, my)) = self.win.get_mouse_pos(MouseMode::Clamp) {
-            let (gx, gy) = (mx / s, my / s);
+            let mg = self.margin as f32;
+            let (gx, gy) = (mx / s - mg, my / s - mg);
             match m.game_mouse() {
                 // Allineamento assoluto con le variabili del gioco.
                 Some(g) => {

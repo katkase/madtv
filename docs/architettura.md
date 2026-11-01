@@ -179,8 +179,10 @@ fermano l'emulazione con un messaggio ("eccezione inattesa").
 sessione ed esegue in sequenza ciò che faceva la startup-sequence del disco:
 l'intro `rai` in una macchina emulata a sé (saltabile con un click o un tasto),
 la schermata dei credits (`u3.lbm`, decodificata da `iff.rs`), poi il gioco in
-una macchina nuova. Buffer 320×200 (o 320×256) ingrandito a pixel interi, 50
-frame al secondo. Il cursore del PC è nascosto perché il
+una macchina nuova (l'intro è disattivata di default: `--intro`). L'immagine
+viene ingrandita a pixel interi dentro un margine (20 pixel di default): nero in
+alto e ai lati, mentre in basso il margine mostra le righe del display oltre la
+200. 50 frame al secondo. Il cursore del PC è nascosto perché il
 puntatore lo disegna il gioco. Avanti veloce automatico finché lo schermo è nero
 (caricamento) e con F11; F12 salva uno screenshot.
 

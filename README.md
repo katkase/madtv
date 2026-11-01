@@ -50,9 +50,10 @@ MTV2). Poi avvia il gioco:
 target\release\madtv.exe
 ```
 
-Come sul disco originale, prima del gioco partono il logo Rainbow Arts (un
-click o un tasto lo saltano) e la schermata dei credits, che scende a tendina e
-attende un click; `--no-intro` li salta entrambi. Il caricamento del gioco viene accelerato automaticamente (schermo
+Con `--intro`, prima del gioco partono come sul disco originale il logo Rainbow
+Arts (un click o un tasto lo saltano) e la schermata dei credits, che scende a
+tendina e attende un click. L'immagine ha un margine di 20 pixel tutto intorno;
+quello inferiore mostra le righe del display oltre la 200, usate dall'intro. Il caricamento del gioco viene accelerato automaticamente (schermo
 nero per pochi secondi). Nella finestra la CPU emulata ha la velocità di un A500, con un
 **turbo automatico** durante i caricamenti dal disco: cambi di schermata e
 aperture delle stanze sono più rapidi, mentre animazioni e ritmo del gioco
@@ -70,10 +71,11 @@ Opzioni utili (`madtv --help` per l'elenco completo):
 
 | Opzione | Effetto |
 |---|---|
-| `--scale N` | ingrandimento della finestra (default 3, cioè 960×600) |
+| `--scale N` | ingrandimento della finestra (default 3: 1080×720 con il margine) |
+| `--margin N` | margine intorno all'immagine in pixel (default 20, 0 per nessun margine) |
 | `--full-height` | mostra tutte le 256 righe PAL invece delle 200 usate dal gioco |
 | `--no-audio` | gioca senza suono |
-| `--no-intro` | salta il logo Rainbow Arts e i credits |
+| `--intro` | mostra il logo Rainbow Arts e i credits prima del gioco |
 | `--headless --wav audio.wav` | registra in un file l'audio prodotto dal gioco |
 | `--cpu-speed P` | velocità della CPU: `auto` (default nella finestra) o una percentuale fissa di un A500, es. `300` |
 | `--headless --frames N` | nessuna finestra: esegue N frame (50 = 1 secondo) e salva `shots\final.png` |

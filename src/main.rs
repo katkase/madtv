@@ -23,7 +23,9 @@ F11 tenuto premuto = avanti veloce, F12 = screenshot).
   --save-dir DIR     cartella per i salvataggi del gioco (default: save)
   --scale N          ingrandimento della finestra (default: 3)
   --no-audio         nessun suono
-  --no-intro         salta il logo Rainbow Arts e i credits
+  --intro            mostra prima del gioco il logo Rainbow Arts e i credits
+  --margin N         margine intorno all'immagine in pixel (default: 20); in
+                     basso mostra le righe del display oltre la 200
   --full-height      mostra tutte le 256 righe PAL (default: le 200 usate dal gioco)
   --mouse-ratio R    conteggi del mouse Amiga per pixel (default: 1.0)
   --cpu-speed P      velocità della CPU in % di un A500, oppure auto
@@ -56,7 +58,8 @@ struct Opts {
     save_dir: PathBuf,
     scale: usize,
     no_audio: bool,
-    no_intro: bool,
+    intro: bool,
+    margin: usize,
     full_height: bool,
     mouse_ratio: f32,
     cpu_speed: Option<String>,
@@ -79,7 +82,8 @@ fn parse_args() -> Result<Opts, String> {
         save_dir: "save".into(),
         scale: 3,
         no_audio: false,
-        no_intro: false,
+        intro: false,
+        margin: 20,
         full_height: false,
         mouse_ratio: 1.0,
         cpu_speed: None,
@@ -106,7 +110,9 @@ fn parse_args() -> Result<Opts, String> {
             "--headless" => o.headless = true,
             "--full-height" => o.full_height = true,
             "--no-audio" => o.no_audio = true,
-            "--no-intro" => o.no_intro = true,
+            "--intro" => o.intro = true,
+            "--no-intro" => o.intro = false,
+            "--margin" => o.margin = val()?.parse().map_err(|e| format!("{e}"))?,
             "--cpu-speed" => o.cpu_speed = Some(val()?),
             "--frames" => o.frames = val()?.parse().map_err(|e| format!("{e}"))?,
             "--max-instr" => o.max_instr = val()?.parse().map_err(|e| format!("{e}"))?,
@@ -269,12 +275,19 @@ fn main() {
                     shot_dir: o.shot_dir.clone(),
                     mouse_ratio: o.mouse_ratio,
                     audio: !o.no_audio,
-                    rows: m.bus.custom.display.visible_rows,
+                    // In basso il margine mostra le righe del display oltre la 200.
+                    rows: if o.full_height {
+                        render::HEIGHT
+                    } else {
+                        render::GAME_HEIGHT + o.margin
+                    }
+                    .min(render::HEIGHT),
+                    margin: o.margin,
                 };
                 match Frontend::new(&wo) {
                     None => StopReason::FrameLimit,
                     Some(mut fe) => {
-                        let go_on = o.no_intro
+                        let go_on = !o.intro
                             || !o.script.is_empty()
                             || play_intro(&mut fe, &intro_disks, &o);
                         if !go_on {

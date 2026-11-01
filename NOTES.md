@@ -141,10 +141,13 @@ Hardware usato direttamente:
   `v u3.lbm` (visualizzatore IFF): per ora eseguiamo solo `mtv s`.
 - Delay() salta i frame in un colpo solo.
 - La finestra non è ridimensionabile (scala fissa scelta all'avvio).
-- Altezza: la finestra e gli screenshot mostrano 200 righe (320×200), le sole
-  che il gioco usa in tutte le schermate provate (DIWSTRT/DIWSTOP $2C-$F4);
-  `--full-height` mostra le 256 righe PAL. Se il gioco disegnasse oltre, la
-  finestra lo segnala in console.
+- Altezza e margini: gli screenshot mostrano 200 righe (320×200), le sole che
+  il gioco usa in tutte le schermate provate (DIWSTRT/DIWSTOP $2C-$F4). La
+  finestra, su richiesta di Pam, ha un margine di 20 pixel (`--margin`): nero
+  in alto e ai lati, mentre in basso mostra le righe 200-219 del display, così
+  l'intro (220 righe) è completa. Finestra di 360×240 pixel del gioco
+  (1080×720 alla scala 3). `--full-height` mostra le 256 righe PAL.
+- Intro disattivata di default (scelta di Pam): si attiva con `--intro`.
 
 ## Audio (fase 3)
 
