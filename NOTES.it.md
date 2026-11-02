@@ -312,6 +312,44 @@ Prossimi passi:
    riscrittura graduale, a partire da quelle trovate qui.
 
 
+## Funzioni del gioco riscritte in Rust (dal 2 novembre 2026)
+
+Pam ha segnalato che il gioco originale è lento quando disegna finestre di
+dettaglio ed etichette grandi. Misura (`examples/pacing_lab`, `stack_lab`,
+`hook_speed`): mentre le disegna il gioco resta fino a 1,5 secondi senza
+sincronizzarsi sul contatore dei frame.
+
+**Meccanismo degli agganci** (`src/hooks.rs`): quando la CPU sta per eseguire
+l'ingresso di una routine agganciata, al suo posto gira una funzione Rust e la
+macchina emula l'`rts`; la funzione Rust può anche rinunciare (`None`) e
+lasciare girare il codice originale. Ogni aggancio controlla i primi byte del
+codice originale prima di agire (l'eseguibile si decomprime da solo all'avvio
+e un'altra versione del gioco potrebbe essere diversa). Attivi di default
+nella finestra, spenti con `--originale`; senza finestra solo se lo script
+dice `hooks on` (le registrazioni ora scrivono `hooks on|off`, e quelle più
+vecchie, senza, si riproducono come prima).
+
+**Primo aggancio: `$040E12`, copia di un rettangolo di schermo**
+(salvataggio e ripristino dello sfondo sotto pannelli, etichette, finestre).
+Ingresso: a1 sorgente, a2 destinazione, d0.w gruppi di 5 righe (una per
+bitplane), d1.w byte per riga, d2.w/d3.w moduli. Se tutto è pari l'originale
+usa il blitter (istantaneo nel nostro emulatore: lasciato all'originale);
+altrimenti copia un byte alla volta con la CPU: fino a 7.000 istruzioni per
+chiamata. La versione Rust fa la stessa copia nello stesso ordine e lascia
+registri e memoria della pila sotto `a7` (dove l'originale salva `d4`) come
+l'originale. Verificata con `examples/hook_check` su 1.400 chiamate reali dalle
+cinque registrazioni di Pam: RAM e registri identici, salvo quando durante
+l'originale scatta un interrupt (cambiano contatore dei frame `$0456E0`, mouse
+e player della musica: lavoro dell'interrupt, non della copia). Effetto: nella
+stanza delle news spariscono le attese da 77 e 63 frame.
+
+**La finestra di dettaglio del palinsesto** (routine `$02F10A`, ~627.000
+istruzioni, 47 frame al 100%) non dipende da questa copia: profilo ~20%
+riempimento di rettangoli un byte alla volta (`$041A9C`), ~16% ricerca lineare
+in una tabella di allocazioni di memoria (`$040424`), ~20% routine intorno a
+`$041E40` (da identificare), ~14% disegno del testo (`$0413xx`). Sono i
+prossimi candidati per gli agganci.
+
 ## Disegno su GPU (dal 2 novembre 2026)
 
 Su richiesta di Pam, un motore di disegno su GPU con `wgpu` 30 (`src/gpu.rs`,

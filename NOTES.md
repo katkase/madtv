@@ -302,6 +302,43 @@ Next steps:
 7. Hooks into the game functions (address → Rust function table) and gradual
    rewrite, starting from the ones found here.
 
+## Game functions rewritten in Rust (from 2 November 2026)
+
+Pam reported that the original game is slow when it draws large detail
+dialogs and labels. Measurement (`examples/pacing_lab`, `stack_lab`,
+`hook_speed`): the game spends up to 1.5 seconds without synchronising on the
+frame counter while drawing them.
+
+**Hook mechanism** (`src/hooks.rs`): when the CPU is about to execute the
+entry of a hooked routine, a Rust function runs instead and the machine
+emulates the `rts`; the Rust function can also decline (`None`) and let the
+original code run. Each hook checks the first bytes of the original code
+before acting (the executable decompresses itself at start-up, and another
+version of the game could differ). Enabled by default in the window,
+disabled with `--originale`; without a window only if the script says
+`hooks on` (recordings now write `hooks on|off`, and older recordings without
+it replay as before).
+
+**First hook: `$040E12`, copy of a screen rectangle** (saving and restoring
+the background under panels, labels, dialogs). Input: a1 source, a2
+destination, d0.w groups of 5 lines (one per bitplane), d1.w bytes per line,
+d2.w/d3.w modulos. When everything is even the original uses the blitter
+(instant in our emulator: left to the original); otherwise it copies one byte
+at a time with the CPU: up to 7,000 instructions per call. The Rust version
+does the same copy in the same order and leaves registers and the stack
+memory below `a7` (where the original pushes `d4`) as the original does.
+Verified with `examples/hook_check` on 1,400 real calls from Pam's five
+recordings: RAM and registers identical, except when an interrupt fires
+during the original's run (the frame counter `$0456E0`, mouse and music
+player change: interrupt work, not the copy's). Effect: in the News room the
+77- and 63-frame stalls disappear.
+
+**The schedule detail dialog** (routine `$02F10A`, ~627,000 instructions, 47
+frames at 100%) is not dominated by this copy: profile ~20% byte-by-byte
+rectangle fill (`$041A9C`), ~16% linear search in a memory allocation table
+(`$040424`), ~20% routine around `$041E40` (to be identified), ~14% text
+drawing (`$0413xx`). These are the next candidates for hooks.
+
 ## GPU renderer (from 2 November 2026)
 
 At Pam's request, a GPU renderer with `wgpu` 30 (`src/gpu.rs`, option

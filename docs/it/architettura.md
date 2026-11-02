@@ -230,6 +230,20 @@ forme da mostrare leggendo lo stato del gioco dalla memoria emulata; la
 finestra le compone sopra l'immagine. Lo strato esiste solo in modalità
 sviluppo (`--dev`): di default la finestra mostra solo il gioco.
 
+## Agganci: funzioni del gioco in Rust
+
+`hooks.rs` contiene una tabella di routine del gioco riscritte in Rust. Nel
+ciclo principale, prima di eseguire un'istruzione, la macchina controlla se il
+PC è l'ingresso di una routine agganciata; se sì, e se i primi byte del codice
+originale sono quelli attesi, chiama la funzione Rust, che lavora sui registri
+della CPU e sul bus. Se la funzione fa il lavoro restituisce i cicli da contare
+e la macchina emula l'`rts`; se rinuncia, si esegue l'istruzione originale. La
+routine si completa così "all'istante" dal punto di vista del gioco, con lo
+stesso risultato in memoria. Attivi di default nella finestra (`--originale` li
+spegne), controllati negli script da `hooks on|off`. `examples/hook_check`
+confronta, a ogni chiamata reale, l'esecuzione originale su una copia della
+macchina con quella Rust su un'altra (tutta la RAM e i registri).
+
 ## Disegno su GPU
 
 `gpu.rs` è un'alternativa al disegno software della finestra, attiva con

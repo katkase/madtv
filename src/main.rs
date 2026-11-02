@@ -49,8 +49,11 @@ F11 tenuto premuto = avanti veloce, F12 = screenshot).
                        shot NOME    salva shots/NOME.png
                        clock SECONDI   orologio di sistema fisso (riproducibilità)
                        cpu auto|P   velocità della CPU
+                       hooks on|off funzioni riscritte in Rust (vedi --originale)
                      Le registrazioni fatte con --record sono script validi.
   --wav FILE         (headless) registra l'audio del gioco in un file WAV
+  --originale        esegue solo il codice originale del gioco, senza le
+                     funzioni riscritte in Rust (più lento in alcuni punti)
   --gpu              disegna con la GPU (wgpu) invece che in software
                      (sperimentale; se la GPU non parte torna al software)
   --dev              modalità sviluppo: strato di sovrapposizione con le
@@ -96,6 +99,7 @@ struct Opts {
     debug_overlay: bool,
     dev: bool,
     gpu: bool,
+    originale: bool,
 }
 
 fn parse_args() -> Result<Opts, String> {
@@ -127,6 +131,7 @@ fn parse_args() -> Result<Opts, String> {
         debug_overlay: false,
         dev: false,
         gpu: false,
+        originale: false,
     };
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
@@ -173,6 +178,7 @@ fn parse_args() -> Result<Opts, String> {
             "--debug-overlay" => o.debug_overlay = true,
             "--dev" => o.dev = true,
             "--gpu" => o.gpu = true,
+            "--originale" => o.originale = true,
             "--help" | "-h" => {
                 print!("{HELP}");
                 std::process::exit(0);
@@ -346,6 +352,10 @@ fn main() {
             "auto".into()
         }
     });
+    // Funzioni riscritte in Rust: attive nella finestra (salvo --originale);
+    // senza finestra solo se lo chiede lo script (`hooks on`), così le
+    // registrazioni fatte prima degli agganci si riproducono identiche.
+    m.hooks_enabled = !o.headless && !o.originale;
     if speed.eq_ignore_ascii_case("auto") {
         m.cpu_speed = 100;
         m.auto_turbo = true;
@@ -566,6 +576,7 @@ fn apply_actions(m: &mut Machine, o: &Opts, next: &mut usize, target: &mut Optio
             Action::Move(dx, dy) => input::mouse_move(c, *dx, *dy),
             Action::Goto(x, y) => *target = Some((*x, *y)),
             Action::Clock(t) => m.os.clock_override = Some(*t),
+            Action::Hooks(on) => m.hooks_enabled = *on,
             Action::Cpu(None) => {
                 m.cpu_speed = 100;
                 m.auto_turbo = true;

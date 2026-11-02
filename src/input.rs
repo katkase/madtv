@@ -170,6 +170,8 @@ pub enum Action {
     Clock(u64),
     /// Velocità della CPU: None = turbo automatico, Some(p) = percentuale fissa.
     Cpu(Option<u32>),
+    /// Funzioni del gioco riscritte in Rust attive o no (vedi `hooks.rs`).
+    Hooks(bool),
 }
 
 /// Analizza uno script: voci "FRAME:azione argomenti" separate da ';' o a capo.
@@ -235,6 +237,11 @@ pub fn parse_script(src: &str) -> Result<Vec<(u64, Action)>, String> {
                         .map_err(|_| format!("velocità non valida in \"{item}\""))?,
                 )),
                 None => return Err(format!("velocità mancante in \"{item}\"")),
+            },
+            "hooks" => match args.first() {
+                Some(&"on") => Action::Hooks(true),
+                Some(&"off") => Action::Hooks(false),
+                _ => return Err(format!("serve on oppure off in \"{item}\"")),
             },
             _ => return Err(format!("azione sconosciuta: {cmd}")),
         };

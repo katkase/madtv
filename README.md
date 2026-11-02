@@ -104,6 +104,7 @@ Italian):
 | `--headless --frames N` | no window: run N frames (50 = 1 second) and save `shots\final.png` |
 | `--script "1290:goto 55 101; 1320:click; 2000:shot capo"` | automatic actions at given frames (also from a file: `--script @scripts\nuova-partita.txt`) |
 | `--record game.txt` | record the session (mouse, keys): the file replays it identically with `--headless --script @game.txt` |
+| `--originale` | run only the original game code, without the functions rewritten in Rust (slower in some places) |
 | `--gpu` | draw with the GPU (wgpu) instead of in software; experimental, falls back to software if the GPU does not start |
 | `--dev` | development mode: overlay layer with the drag-and-drop highlights |
 | `--debug-overlay` | crosshair on the pointer tip (overlay alignment check) |
@@ -133,6 +134,7 @@ src/
   iff.rs        IFF ILBM decoder (credits screen)
   window.rs     window (minifb): intro, credits, game, recording
   overlay.rs    sharp overlay layer (highlights)
+  hooks.rs      game functions rewritten in Rust (hooks)
   gpu.rs        GPU renderer (wgpu): game picture + overlay, alternative to software
   enhance.rs    interface enhancements on top of the game
   machine.rs    CPU + bus + operating system; main loop

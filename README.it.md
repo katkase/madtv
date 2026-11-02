@@ -103,6 +103,7 @@ Opzioni utili (`madtv --help` per l'elenco completo):
 | `--headless --frames N` | nessuna finestra: esegue N frame (50 = 1 secondo) e salva `shots\final.png` |
 | `--script "1290:goto 55 101; 1320:click; 2000:shot capo"` | azioni automatiche a frame stabiliti (anche da file: `--script @scripts\nuova-partita.txt`) |
 | `--record partita.txt` | registra la partita (mouse, tasti): il file la riproduce identica con `--headless --script @partita.txt` |
+| `--originale` | esegue solo il codice originale del gioco, senza le funzioni riscritte in Rust (più lento in alcuni punti) |
 | `--gpu` | disegna con la GPU (wgpu) invece che in software; sperimentale, se la GPU non parte torna al software |
 | `--dev` | modalità sviluppo: strato di sovrapposizione con le evidenziazioni del trascinamento |
 | `--debug-overlay` | mirino sulla punta del puntatore (verifica dello strato di sovrapposizione) |
@@ -133,6 +134,7 @@ src/
   iff.rs        decodifica delle immagini IFF ILBM (schermata dei credits)
   window.rs     finestra (minifb): intro, credits, gioco, registrazione
   overlay.rs    strato di sovrapposizione nitido (evidenziazioni)
+  hooks.rs      funzioni del gioco riscritte in Rust (agganci)
   gpu.rs        disegno su GPU (wgpu): immagine del gioco + strato, alternativo al software
   enhance.rs    miglioramenti dell'interfaccia sopra il gioco
   machine.rs    CPU + bus + sistema operativo; ciclo principale

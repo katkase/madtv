@@ -227,6 +227,21 @@ from emulated memory; the window composes them over the picture. The layer
 exists only in development mode (`--dev`): by default the window shows only
 the game.
 
+## Hooks: game functions in Rust
+
+`hooks.rs` holds a table of game routines rewritten in Rust. In the main
+loop, before executing an instruction, the machine checks whether the PC is
+the entry of a hooked routine; if so, and if the first bytes of the original
+code match the expected ones, it calls the Rust function, which works on the
+CPU registers and the bus. If the function does the work it returns the
+cycles to count and the machine emulates the `rts`; if it declines, the
+original instruction runs. The routine therefore completes "instantly" from
+the game's point of view, with the same result in memory. Enabled by default
+in the window (`--originale` disables them), controlled in scripts by
+`hooks on|off`. `examples/hook_check` compares, at every real call, the
+original run on one copy of the machine with the Rust one on another (all
+RAM and registers).
+
 ## GPU renderer
 
 `gpu.rs` is an alternative to the software drawing of the window, enabled

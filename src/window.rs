@@ -327,6 +327,8 @@ impl Frontend {
                 m.cpu_speed.to_string()
             };
             self.rec(f, &format!("cpu {cpu}"));
+            let hooks = if m.hooks_enabled { "on" } else { "off" };
+            self.rec(f, &format!("hooks {hooks}"));
         }
         let result = self.run_inner(m, skippable);
         if let Some(w) = self.record.as_mut() {

@@ -80,6 +80,11 @@ pub struct Machine {
     pub probe_pcs: Vec<u32>,
     pub probe_log: Vec<(u64, u32, Vec<u32>)>,
     pub pc_hist_pos: usize,
+    /// Funzioni del gioco riscritte in Rust (vedi `hooks.rs`).
+    pub hooks: Vec<crate::hooks::Hook>,
+    pub hooks_enabled: bool,
+    /// Chiamate eseguite in Rust, per aggancio (statistica).
+    pub hook_calls: Vec<u64>,
 }
 
 /// Copia completa della macchina: RAM, chip custom, sistema operativo emulato
@@ -116,6 +121,9 @@ impl Clone for Machine {
             probe_pcs: Vec::new(),
             probe_log: Vec::new(),
             pc_hist_pos: self.pc_hist_pos,
+            hooks: self.hooks.clone(),
+            hooks_enabled: self.hooks_enabled,
+            hook_calls: self.hook_calls.clone(),
         }
     }
 }
@@ -153,6 +161,9 @@ impl Machine {
             probe_pcs: Vec::new(),
             probe_log: Vec::new(),
             pc_hist_pos: 0,
+            hooks: Vec::new(),
+            hooks_enabled: false,
+            hook_calls: Vec::new(),
         }
     }
 
@@ -266,6 +277,8 @@ impl Machine {
         // codice decompresso, segmento 1): vedi NOTES.md, "Velocità".
         if blocks.len() > 1 {
             self.pacing_pc = blocks[1] + 8 + 0x40364;
+            self.hooks = crate::hooks::game_hooks(blocks[1] + 8);
+            self.hook_calls = vec![0; self.hooks.len()];
         }
         self.entry = blocks[0] + 8;
 
@@ -420,88 +433,109 @@ impl Machine {
                 let st = (0..12).map(|i| self.bus.peek32(sp + i * 4)).collect();
                 self.probe_log.push((self.bus.custom.frame, step_pc, st));
             }
-            let r = self.cpu.step(&mut self.bus);
-            if self.bus.watch_hit != 0 {
-                self.watch_log
-                    .push((self.bus.custom.frame, step_pc, self.bus.watch_hit));
-                self.bus.watch_hit = 0;
-            }
-            let cycles = match r {
-                StepResult::Ok { cycles } => cycles.max(4) as u64,
-                StepResult::AlineTrap { opcode } => {
-                    let pc = self.cpu.ppc;
-                    let mut ctx = Ctx {
-                        cpu: &mut self.cpu,
-                        bus: &mut self.bus,
-                    };
-                    match self.os.handle_trap(&mut ctx, opcode, pc) {
-                        Outcome::Return => {
+            // Funzione riscritta in Rust: fa il lavoro ed emula l'rts.
+            let mut hooked = None;
+            if self.hooks_enabled {
+                if let Some(i) = self.hooks.iter().position(|h| h.addr == step_pc) {
+                    let h = self.hooks[i];
+                    if crate::hooks::signature_ok(&self.bus, &h) {
+                        if let Some(c) = (h.f)(&mut self.cpu, &mut self.bus) {
                             let sp = self.cpu.a(7);
-                            {
-                                self.cpu.pc = self.bus.read_long(sp);
-                                self.cpu.invalidate_prefetch();
-                            }
+                            self.cpu.pc = self.bus.peek32(sp);
                             self.cpu.set_a(7, sp + 4);
-                        }
-                        Outcome::Continue => {
-                            self.cpu.pc = pc + 2;
                             self.cpu.invalidate_prefetch();
-                        }
-                        Outcome::Jumped => {}
-                        Outcome::Exit(code) => return StopReason::Exited(code),
-                        Outcome::Unimplemented => {
-                            if let Some(v) = self.os.exception {
-                                // Il quadro dell'eccezione è sulla pila del supervisore.
-                                let sp = self.cpu.a(7);
-                                let fault_pc = if v == 2 || v == 3 {
-                                    self.bus.peek32(sp + 10)
-                                } else {
-                                    self.bus.peek32(sp + 2)
-                                };
-                                let mut d = exception_desc(v, fault_pc);
-                                if v == 2 || v == 3 {
-                                    d += &format!(
-                                        " (indirizzo di accesso ${:06x})",
-                                        self.bus.peek32(sp + 2)
-                                    );
-                                }
-                                return StopReason::Exception(d);
-                            }
-                            let desc = match self.os.missing {
-                                Some((lib, idx)) => format!(
-                                    "{}: {} (LVO {}) chiamata da ${:06x}",
-                                    lib.lib_name(),
-                                    lib.func_name(idx as usize),
-                                    -(30 + 6 * idx as i32),
-                                    self.bus.peek32(self.cpu.a(7))
-                                ),
-                                None => format!("trap sconosciuta ${opcode:04x} a ${pc:06x}"),
-                            };
-                            return StopReason::Unimplemented(desc);
+                            self.hook_calls[i] += 1;
+                            hooked = Some(c);
                         }
                     }
-                    40
                 }
-                StepResult::Stopped => {
-                    // STOP: avanza fino al prossimo frame (o al prossimo interrupt).
+            }
+            let cycles = if let Some(c) = hooked {
+                c
+            } else {
+                let r = self.cpu.step(&mut self.bus);
+                if self.bus.watch_hit != 0 {
+                    self.watch_log
+                        .push((self.bus.custom.frame, step_pc, self.bus.watch_hit));
+                    self.bus.watch_hit = 0;
+                }
+                match r {
+                    StepResult::Ok { cycles } => cycles.max(4) as u64,
+                    StepResult::AlineTrap { opcode } => {
+                        let pc = self.cpu.ppc;
+                        let mut ctx = Ctx {
+                            cpu: &mut self.cpu,
+                            bus: &mut self.bus,
+                        };
+                        match self.os.handle_trap(&mut ctx, opcode, pc) {
+                            Outcome::Return => {
+                                let sp = self.cpu.a(7);
+                                {
+                                    self.cpu.pc = self.bus.read_long(sp);
+                                    self.cpu.invalidate_prefetch();
+                                }
+                                self.cpu.set_a(7, sp + 4);
+                            }
+                            Outcome::Continue => {
+                                self.cpu.pc = pc + 2;
+                                self.cpu.invalidate_prefetch();
+                            }
+                            Outcome::Jumped => {}
+                            Outcome::Exit(code) => return StopReason::Exited(code),
+                            Outcome::Unimplemented => {
+                                if let Some(v) = self.os.exception {
+                                    // Il quadro dell'eccezione è sulla pila del supervisore.
+                                    let sp = self.cpu.a(7);
+                                    let fault_pc = if v == 2 || v == 3 {
+                                        self.bus.peek32(sp + 10)
+                                    } else {
+                                        self.bus.peek32(sp + 2)
+                                    };
+                                    let mut d = exception_desc(v, fault_pc);
+                                    if v == 2 || v == 3 {
+                                        d += &format!(
+                                            " (indirizzo di accesso ${:06x})",
+                                            self.bus.peek32(sp + 2)
+                                        );
+                                    }
+                                    return StopReason::Exception(d);
+                                }
+                                let desc = match self.os.missing {
+                                    Some((lib, idx)) => format!(
+                                        "{}: {} (LVO {}) chiamata da ${:06x}",
+                                        lib.lib_name(),
+                                        lib.func_name(idx as usize),
+                                        -(30 + 6 * idx as i32),
+                                        self.bus.peek32(self.cpu.a(7))
+                                    ),
+                                    None => format!("trap sconosciuta ${opcode:04x} a ${pc:06x}"),
+                                };
+                                return StopReason::Unimplemented(desc);
+                            }
+                        }
+                        40
+                    }
+                    StepResult::Stopped => {
+                        // STOP: avanza fino al prossimo frame (o al prossimo interrupt).
 
-                    FRAME_CYCLES - self.bus.custom.cycles % FRAME_CYCLES
-                }
-                // TRAP, F-line, BKPT, ILLEGAL: come sull'hardware, la CPU prende
-                // l'eccezione e salta al vettore. Le intro lo usano per passare in
-                // modo supervisore (TRAP #0 con il vettore puntato sul proprio codice);
-                // se il vettore è ancora il nostro, la trap interna segnala l'errore.
-                StepResult::TrapInstruction { trap_num } => {
-                    self.cpu.take_trap_exception(&mut self.bus, trap_num).max(4) as u64
-                }
-                StepResult::FlineTrap { .. } => {
-                    self.cpu.take_fline_exception(&mut self.bus).max(4) as u64
-                }
-                StepResult::IllegalInstruction { .. } => {
-                    self.cpu.take_illegal_exception(&mut self.bus).max(4) as u64
-                }
-                other => {
-                    return StopReason::Exception(format!("{other:?} a ${:06x}", self.cpu.ppc));
+                        FRAME_CYCLES - self.bus.custom.cycles % FRAME_CYCLES
+                    }
+                    // TRAP, F-line, BKPT, ILLEGAL: come sull'hardware, la CPU prende
+                    // l'eccezione e salta al vettore. Le intro lo usano per passare in
+                    // modo supervisore (TRAP #0 con il vettore puntato sul proprio codice);
+                    // se il vettore è ancora il nostro, la trap interna segnala l'errore.
+                    StepResult::TrapInstruction { trap_num } => {
+                        self.cpu.take_trap_exception(&mut self.bus, trap_num).max(4) as u64
+                    }
+                    StepResult::FlineTrap { .. } => {
+                        self.cpu.take_fline_exception(&mut self.bus).max(4) as u64
+                    }
+                    StepResult::IllegalInstruction { .. } => {
+                        self.cpu.take_illegal_exception(&mut self.bus).max(4) as u64
+                    }
+                    other => {
+                        return StopReason::Exception(format!("{other:?} a ${:06x}", self.cpu.ppc));
+                    }
                 }
             };
             if self.cpu.is_halted() {

@@ -28,6 +28,7 @@ pub fn apply(m: &mut Machine, script: &[(u64, Action)], next: &mut usize) {
         match &script[*next].1 {
             Action::Move(dx, dy) => input::mouse_move(c, *dx, *dy),
             Action::Clock(t) => m.os.clock_override = Some(*t),
+            Action::Hooks(on) => m.hooks_enabled = *on,
             Action::Cpu(None) => {
                 m.cpu_speed = 100;
                 m.auto_turbo = true;
