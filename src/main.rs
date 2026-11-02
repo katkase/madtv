@@ -18,9 +18,11 @@ USO: madtv [opzioni]
 Di default apre la finestra di gioco (F10 = turbo automatico sì/no,
 F11 tenuto premuto = avanti veloce, F12 = screenshot).
 
-  --adf-dir DIR      cartella con le immagini ADF originali (default: adf)
-                     i dischi vengono riconosciuti dal nome di volume (MTV1, MTV2)
-  --save-dir DIR     cartella per i salvataggi del gioco (default: save)
+  --adf-dir DIR      cartella con le immagini ADF originali (default: adf, cercata
+                     nella cartella corrente, accanto all'eseguibile e nella
+                     cartella del progetto); i dischi vengono riconosciuti dal
+                     nome di volume (MTV1, MTV2)
+  --save-dir DIR     cartella per i salvataggi del gioco (default: save, accanto ad adf)
   --scale N          ingrandimento della finestra (default: 3)
   --no-audio         nessun suono
   --intro            mostra prima del gioco il logo Rainbow Arts e i credits
@@ -36,7 +38,7 @@ F11 tenuto premuto = avanti veloce, F12 = screenshot).
   --frames N         (headless) frame PAL da eseguire, 50 = 1 secondo (default: 500)
   --max-instr N      (headless) limite di istruzioni 68000
   --shot-every N     (headless) uno screenshot PNG ogni N frame (0 = solo alla fine)
-  --shot-dir DIR     cartella degli screenshot (default: shots)
+  --shot-dir DIR     cartella degli screenshot (default: shots, accanto ad adf)
   --script TESTO     azioni automatiche: \"FRAME:azione; FRAME:azione...\"
                      (oppure @file per leggerle da un file). Azioni:
                        move DX DY   sposta il mouse (conteggi Amiga)
@@ -54,6 +56,10 @@ F11 tenuto premuto = avanti veloce, F12 = screenshot).
 ";
 
 struct Opts {
+    /// Cartelle indicate esplicitamente sulla riga di comando.
+    explicit_adf: bool,
+    explicit_save: bool,
+    explicit_shots: bool,
     adf_dir: PathBuf,
     save_dir: PathBuf,
     scale: usize,
@@ -78,6 +84,9 @@ struct Opts {
 
 fn parse_args() -> Result<Opts, String> {
     let mut o = Opts {
+        explicit_adf: false,
+        explicit_save: false,
+        explicit_shots: false,
         adf_dir: "adf".into(),
         save_dir: "save".into(),
         scale: 3,
@@ -103,8 +112,14 @@ fn parse_args() -> Result<Opts, String> {
     while let Some(a) = it.next() {
         let mut val = || it.next().ok_or(format!("manca il valore per {a}"));
         match a.as_str() {
-            "--adf-dir" => o.adf_dir = val()?.into(),
-            "--save-dir" => o.save_dir = val()?.into(),
+            "--adf-dir" => {
+                o.adf_dir = val()?.into();
+                o.explicit_adf = true;
+            }
+            "--save-dir" => {
+                o.save_dir = val()?.into();
+                o.explicit_save = true;
+            }
             "--scale" => o.scale = val()?.parse().map_err(|e| format!("{e}"))?,
             "--mouse-ratio" => o.mouse_ratio = val()?.parse().map_err(|e| format!("{e}"))?,
             "--headless" => o.headless = true,
@@ -118,7 +133,10 @@ fn parse_args() -> Result<Opts, String> {
             "--max-instr" => o.max_instr = val()?.parse().map_err(|e| format!("{e}"))?,
             "--trace" => o.trace = Some(val()?.into()),
             "--shot-every" => o.shot_every = val()?.parse().map_err(|e| format!("{e}"))?,
-            "--shot-dir" => o.shot_dir = val()?.into(),
+            "--shot-dir" => {
+                o.shot_dir = val()?.into();
+                o.explicit_shots = true;
+            }
             "--script" => {
                 let v = val()?;
                 let src = match v.strip_prefix('@') {
@@ -143,8 +161,12 @@ fn parse_args() -> Result<Opts, String> {
 
 /// Carica tutti gli ADF della cartella e li ordina per nome di volume.
 fn load_disks(dir: &Path) -> Result<Vec<Adf>, String> {
-    let rd = std::fs::read_dir(dir)
-        .map_err(|e| format!("impossibile leggere {}: {e}", dir.display()))?;
+    let rd = std::fs::read_dir(dir).map_err(|e| {
+        format!(
+            "non trovo la cartella dei dischi {} ({e}).\nCrea una cartella adf accanto all'eseguibile o nella cartella del progetto\ne copiaci le immagini ADF originali di Mad TV.",
+            dir.display()
+        )
+    })?;
     let mut disks: Vec<Adf> = Vec::new();
     for de in rd.flatten() {
         let p = de.path();
@@ -178,20 +200,90 @@ fn load_disks(dir: &Path) -> Result<Vec<Adf>, String> {
     Ok(disks)
 }
 
-fn main() {
-    let o = match parse_args() {
-        Ok(o) => o,
-        Err(e) => {
-            eprintln!("errore: {e}\n\n{HELP}");
-            std::process::exit(2);
+/// True se il programma è stato avviato con un doppio click (Esplora risorse):
+/// in quel caso Windows crea una console solo per noi, che si chiude all'uscita
+/// portandosi via eventuali messaggi d'errore.
+#[cfg(windows)]
+fn own_console() -> bool {
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetConsoleProcessList(list: *mut u32, count: u32) -> u32;
+    }
+    let mut list = [0u32; 4];
+    // SAFETY: il buffer è valido per 4 elementi, come dichiarato.
+    let n = unsafe { GetConsoleProcessList(list.as_mut_ptr(), list.len() as u32) };
+    n == 1
+}
+
+#[cfg(not(windows))]
+fn own_console() -> bool {
+    false
+}
+
+/// Se la console è solo nostra, aspetta Invio prima di chiuderla.
+fn pause_if_own_console() {
+    if own_console() {
+        eprintln!("\nPremi Invio per chiudere...");
+        let _ = std::io::stdin().read_line(&mut String::new());
+    }
+}
+
+/// Mostra un errore e termina, lasciando il messaggio leggibile.
+fn fatal(msg: &str, code: i32) -> ! {
+    eprintln!("errore: {msg}");
+    pause_if_own_console();
+    std::process::exit(code);
+}
+
+/// Trova la cartella di base del progetto, quella che contiene `adf`: la
+/// cartella corrente, quella dell'eseguibile o, per un eseguibile compilato in
+/// `target\release`, la cartella del progetto due livelli più su.
+fn find_base_dir() -> Option<PathBuf> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Ok(cwd) = std::env::current_dir() {
+        candidates.push(cwd);
+    }
+    if let Some(dir) = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(|p| p.to_path_buf()))
+    {
+        candidates.push(dir.clone());
+        if let Some(up) = dir.parent() {
+            candidates.push(up.to_path_buf());
+            if let Some(up2) = up.parent() {
+                candidates.push(up2.to_path_buf());
+            }
         }
+    }
+    candidates.into_iter().find(|c| c.join("adf").is_dir())
+}
+
+fn main() {
+    // Anche un errore interno deve restare leggibile se la console è solo nostra.
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        default_hook(info);
+        pause_if_own_console();
+    }));
+
+    let mut o = match parse_args() {
+        Ok(o) => o,
+        Err(e) => fatal(&format!("{e}\n\n{HELP}"), 2),
     };
+    if let Some(base) = find_base_dir() {
+        if !o.explicit_adf {
+            o.adf_dir = base.join("adf");
+        }
+        if !o.explicit_save {
+            o.save_dir = base.join("save");
+        }
+        if !o.explicit_shots {
+            o.shot_dir = base.join("shots");
+        }
+    }
     let disks = match load_disks(&o.adf_dir) {
         Ok(d) => d,
-        Err(e) => {
-            eprintln!("errore: {e}");
-            std::process::exit(1);
-        }
+        Err(e) => fatal(&e, 1),
     };
     for d in &disks {
         println!("disco: {} ({} file)", d.volume_name, d.entries().count());

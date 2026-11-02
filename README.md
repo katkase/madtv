@@ -50,6 +50,14 @@ MTV2). Poi avvia il gioco:
 target\release\madtv.exe
 ```
 
+Si può avviare anche con un doppio click da Esplora risorse: il programma cerca
+la cartella `adf` nella cartella corrente, accanto all'eseguibile e nella
+cartella del progetto (due livelli sopra `target\release`); `save` e `shots`
+vengono create accanto ad `adf`. Per una copia "portatile" basta mettere
+`madtv.exe` e la cartella `adf` nella stessa cartella. In caso di errore, se il
+programma è stato avviato con un doppio click la console resta aperta con il
+messaggio finché non si preme Invio.
+
 Con `--intro`, prima del gioco partono come sul disco originale il logo Rainbow
 Arts (un click o un tasto lo saltano) e la schermata dei credits, che scende a
 tendina e attende un click. L'immagine ha un margine di 20 pixel tutto intorno;

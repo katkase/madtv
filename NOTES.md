@@ -148,6 +148,12 @@ Hardware usato direttamente:
   l'intro (220 righe) è completa. Finestra di 360×240 pixel del gioco
   (1080×720 alla scala 3). `--full-height` mostra le 256 righe PAL.
 - Intro disattivata di default (scelta di Pam): si attiva con `--intro`.
+- Avvio con doppio click (segnalato da Pam: falliva in silenzio): la cartella
+  corrente è `target\release`, quindi `adf` non veniva trovata e la console si
+  chiudeva subito. Ora `adf` si cerca anche accanto all'eseguibile e due livelli
+  sopra; con una console tutta nostra (`GetConsoleProcessList` = 1) gli errori,
+  anche interni, aspettano Invio. Codice specifico di Windows non compilabile
+  nella sandbox: da verificare su Windows.
 
 ## Audio (fase 3)
 
