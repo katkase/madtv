@@ -11,6 +11,7 @@ use crate::custom::Custom;
 
 pub const RAM_SIZE: usize = 2 * 1024 * 1024;
 
+#[derive(Clone)]
 pub struct Bus {
     pub ram: Vec<u8>,
     pub custom: Custom,
@@ -19,6 +20,10 @@ pub struct Bus {
     pub unmapped_writes: u64,
     /// Ultimi accessi non mappati, per il rapporto finale.
     pub unmapped_log: Vec<(u32, bool)>,
+    /// Punto di osservazione per la diagnostica: intervallo `[lo, hi)` di RAM.
+    /// Gli accessi della CPU accendono i bit di `watch_hit` (1 lettura, 2 scrittura).
+    pub watch: (u32, u32),
+    pub watch_hit: u8,
 }
 
 impl Bus {
@@ -29,6 +34,8 @@ impl Bus {
             unmapped_reads: 0,
             unmapped_writes: 0,
             unmapped_log: Vec::new(),
+            watch: (0, 0),
+            watch_hit: 0,
         }
     }
 
@@ -103,6 +110,13 @@ impl Bus {
         }
     }
 
+    #[inline]
+    fn check_watch(&mut self, a: u32, len: u32, bit: u8) {
+        if a < self.watch.1 && a + len > self.watch.0 {
+            self.watch_hit |= bit;
+        }
+    }
+
     fn is_ram(a: u32) -> bool {
         (a as usize) < RAM_SIZE
     }
@@ -124,6 +138,7 @@ impl m68k::AddressBus for Bus {
     fn read_byte(&mut self, address: u32) -> u8 {
         let a = address & 0xFF_FFFF;
         if Self::is_ram(a) {
+            self.check_watch(a, 1, 1);
             self.ram[a as usize]
         } else if Self::is_custom(a) {
             let w = self.custom.read(a & 0x1FE);
@@ -138,6 +153,7 @@ impl m68k::AddressBus for Bus {
     fn read_word(&mut self, address: u32) -> u16 {
         let a = address & 0xFF_FFFF;
         if Self::is_ram(a) && Self::is_ram(a + 1) {
+            self.check_watch(a, 2, 1);
             u16::from_be_bytes([self.ram[a as usize], self.ram[a as usize + 1]])
         } else if Self::is_custom(a) {
             self.custom.read(a & 0x1FE)
@@ -151,6 +167,7 @@ impl m68k::AddressBus for Bus {
     fn write_byte(&mut self, address: u32, value: u8) {
         let a = address & 0xFF_FFFF;
         if Self::is_ram(a) {
+            self.check_watch(a, 1, 2);
             self.ram[a as usize] = value;
         } else if Self::is_custom(a) {
             // Le scritture a byte sui registri custom replicano il byte su entrambe le metà.
@@ -165,6 +182,7 @@ impl m68k::AddressBus for Bus {
     fn write_word(&mut self, address: u32, value: u16) {
         let a = address & 0xFF_FFFF;
         if Self::is_ram(a) && Self::is_ram(a + 1) {
+            self.check_watch(a, 2, 2);
             let b = value.to_be_bytes();
             self.ram[a as usize] = b[0];
             self.ram[a as usize + 1] = b[1];

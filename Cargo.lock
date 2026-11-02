@@ -37,6 +37,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
 
 [[package]]
+name = "bincode"
+version = "1.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "bitflags"
 version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -478,6 +487,9 @@ name = "m68k"
 version = "0.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "36e6b8ed011db5da9b67bf8853c1e19352f818ba280c928cb40592d13cef05e3"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "mach2"
@@ -489,6 +501,7 @@ checksum = "dae608c151f68243f2b000364e1f7b186d9c29845f7d2d85bd31b9ad77ad552b"
 name = "madtv"
 version = "0.1.0"
 dependencies = [
+ "bincode",
  "cpal",
  "m68k",
  "minifb",

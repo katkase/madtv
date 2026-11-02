@@ -45,7 +45,9 @@ fn main() {
             }
         }
     }
-    let shapes = Enhancer { debug: true }.update(&m);
+    let mut en = Enhancer::new(false);
+    en.debug = true;
+    let shapes = en.update(&m);
     Canvas {
         buf: &mut buf,
         width: w,

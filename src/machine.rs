@@ -73,7 +73,51 @@ pub struct Machine {
     pub pacing_calls: u64,
     /// Ultimi PC eseguiti (diagnostica in caso di errore).
     pub pc_history: [u32; 64],
+    /// Accessi al punto di osservazione del bus: (frame, PC dell'istruzione, bit).
+    pub watch_log: Vec<(u64, u32, u8)>,
+    /// Punti di arresto diagnostici: quando la CPU sta per eseguire uno di questi
+    /// indirizzi annota (frame, PC, prime 12 longword dello stack). Non si ferma.
+    pub probe_pcs: Vec<u32>,
+    pub probe_log: Vec<(u64, u32, Vec<u32>)>,
     pub pc_hist_pos: usize,
+}
+
+/// Copia completa della macchina: RAM, chip custom, sistema operativo emulato
+/// e registri della CPU (questi via serializzazione, perché il core m68k non
+/// implementa `Clone`). I dischi sono condivisi. Serve a "provare" un'azione
+/// senza conseguenze: vedi `enhance::probe_drop`. La copia ha il file system
+/// in sola lettura, così non può scrivere salvataggi.
+impl Clone for Machine {
+    fn clone(&self) -> Machine {
+        let bytes = bincode::serialize(&self.cpu).expect("serializzazione della CPU");
+        let cpu: CpuCore = bincode::deserialize(&bytes).expect("ripristino della CPU");
+        let mut os = self.os.clone();
+        os.vfs.read_only = true;
+        os.trace = None;
+        Machine {
+            cpu,
+            bus: self.bus.clone(),
+            os,
+            instructions: self.instructions,
+            entry: self.entry,
+            seglist: self.seglist,
+            segments: self.segments.clone(),
+            cpu_speed: self.cpu_speed,
+            cycle_acc: self.cycle_acc,
+            auto_turbo: self.auto_turbo,
+            turbo_speed: self.turbo_speed,
+            turbo_active: self.turbo_active,
+            last_disk_activity: self.last_disk_activity,
+            pacing_pc: self.pacing_pc,
+            turbo_frames: self.turbo_frames,
+            pacing_calls: self.pacing_calls,
+            pc_history: self.pc_history,
+            watch_log: Vec::new(),
+            probe_pcs: Vec::new(),
+            probe_log: Vec::new(),
+            pc_hist_pos: self.pc_hist_pos,
+        }
+    }
 }
 
 impl Machine {
@@ -105,6 +149,9 @@ impl Machine {
             turbo_frames: 0,
             pacing_calls: 0,
             pc_history: [0; 64],
+            watch_log: Vec::new(),
+            probe_pcs: Vec::new(),
+            probe_log: Vec::new(),
             pc_hist_pos: 0,
         }
     }
@@ -367,7 +414,18 @@ impl Machine {
             }
             self.pc_history[self.pc_hist_pos & 63] = self.cpu.pc;
             self.pc_hist_pos += 1;
+            let step_pc = self.cpu.pc;
+            if !self.probe_pcs.is_empty() && self.probe_pcs.contains(&step_pc) {
+                let sp = self.cpu.a(7);
+                let st = (0..12).map(|i| self.bus.peek32(sp + i * 4)).collect();
+                self.probe_log.push((self.bus.custom.frame, step_pc, st));
+            }
             let r = self.cpu.step(&mut self.bus);
+            if self.bus.watch_hit != 0 {
+                self.watch_log
+                    .push((self.bus.custom.frame, step_pc, self.bus.watch_hit));
+                self.bus.watch_hit = 0;
+            }
             let cycles = match r {
                 StepResult::Ok { cycles } => cycles.max(4) as u64,
                 StepResult::AlineTrap { opcode } => {

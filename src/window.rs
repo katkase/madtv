@@ -5,7 +5,7 @@
 //! mostrare immagini (la schermata dei credits), come faceva la
 //! startup-sequence del disco originale.
 //!
-//! Tasti speciali: F10 = turbo automatico sì/no, F11 (tenuto premuto) = avanti
+//! Tasti speciali: F9 = evidenziazioni sì/no, F10 = turbo automatico sì/no, F11 (tenuto premuto) = avanti
 //! veloce, F12 = screenshot. Durante l'intro un click o un tasto la salta.
 //!
 //! Il gioco disegna da sé il puntatore del mouse, quindi il cursore di sistema
@@ -107,7 +107,7 @@ impl Frontend {
             warned_rows: false,
             record: None,
             rec_buttons: (false, false),
-            enhancer: Enhancer::default(),
+            enhancer: Enhancer::new(true),
         })
     }
 
@@ -316,6 +316,17 @@ impl Frontend {
             if self.win.is_key_pressed(Key::F12, KeyRepeat::No) {
                 let px = m.bus.custom.display.front.clone();
                 self.screenshot(&px);
+            }
+            if self.win.is_key_pressed(Key::F9, KeyRepeat::No) {
+                self.enhancer.highlights = !self.enhancer.highlights;
+                println!(
+                    "evidenziazioni {}",
+                    if self.enhancer.highlights {
+                        "attive"
+                    } else {
+                        "spente (gioco originale)"
+                    }
+                );
             }
             if self.win.is_key_pressed(Key::F10, KeyRepeat::No) {
                 // Turbo automatico (default) oppure velocità sempre fissa.

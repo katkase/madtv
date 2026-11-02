@@ -16,6 +16,16 @@ e audio (musica TFMX ed effetti, attraverso l'emulazione di Paula).
 |---|---|---|
 | ![](docs/img/fase1-selezione-giocatori.png) | ![](docs/img/fase2-edificio.png) | ![](docs/img/fase2-capo.png) |
 
+**Evidenziazioni** (novembre 2026): mentre trascini un pannello o una
+cassetta, il porting mostra il punto che il gioco usa davvero per decidere dove
+rilasci (l'angolo in alto a sinistra dell'oggetto, non la punta della freccia)
+e lo colora di verde se lì il rilascio verrebbe accettato, di rosso se no; nel
+palinsesto evidenzia anche la casella di destinazione. La risposta la dà il
+gioco stesso, con un click "di prova" su una copia della macchina emulata.
+F9 o `--originale` le spengono.
+
+![](docs/img/evidenziazione-palinsesto.png)
+
 Lo stato dettagliato e i prossimi passi sono in [NOTES.md](NOTES.md).
 
 ## Come funziona, in breve
@@ -71,6 +81,7 @@ restano quelli originali. Comandi:
 |---|---|
 | mouse | il puntatore del gioco segue quello del PC |
 | tastiera | come su un Amiga (nomi dei giocatori, ecc.) |
+| F9 | evidenziazioni sì (default) / no |
 | F10 | turbo automatico sì (default) / no |
 | F11 (tenuto premuto) | avanti veloce |
 | F12 | screenshot nella cartella `shots\` |
@@ -89,6 +100,7 @@ Opzioni utili (`madtv --help` per l'elenco completo):
 | `--headless --frames N` | nessuna finestra: esegue N frame (50 = 1 secondo) e salva `shots\final.png` |
 | `--script "1290:goto 55 101; 1320:click; 2000:shot capo"` | azioni automatiche a frame stabiliti (anche da file: `--script @scripts\nuova-partita.txt`) |
 | `--record partita.txt` | registra la partita (mouse, tasti): il file la riproduce identica con `--headless --script @partita.txt` |
+| `--originale` | nessuna evidenziazione: il gioco esattamente com'era |
 | `--debug-overlay` | mirino sulla punta del puntatore (verifica dello strato di sovrapposizione) |
 | `--trace trace.log` | registra ogni chiamata di sistema del gioco |
 | `--dump ram.bin` | salva la RAM emulata alla fine (per l'analisi con un disassembler) |
@@ -122,7 +134,8 @@ src/
   os/           AmigaOS emulato: exec, dos, graphics, intuition, file system virtuale
   main.rs       programma a riga di comando
 docs/           documentazione tecnica
-scripts/        esempi di script di azioni
+scripts/        esempi di script di azioni; registrazioni/ = partite di prova
+examples/       strumenti di analisi (drag_lab, probe, drop_lab, highlight_demo...)
 NOTES.md        stato del lavoro e prossimi passi
 ```
 

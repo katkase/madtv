@@ -41,6 +41,7 @@ struct Sprite {
     visible_now: bool,
 }
 
+#[derive(Clone)]
 pub struct Display {
     sprites: [Sprite; 8],
     /// Frame in costruzione e ultimo frame completo, in formato 0x00RRGGBB.

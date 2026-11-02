@@ -100,6 +100,7 @@ pub fn reg_name(off: u16) -> String {
 pub const CYCLES_PER_LINE: u64 = 454;
 pub const LINES_PER_FRAME: u64 = 313;
 
+#[derive(Clone)]
 pub struct Custom {
     /// Ultimo valore scritto in ciascun registro (indice = offset/2).
     pub regs: [u16; 256],

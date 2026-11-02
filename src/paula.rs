@@ -43,6 +43,7 @@ struct Channel {
     manual_pending: bool,
 }
 
+#[derive(Clone)]
 pub struct Paula {
     ch: [Channel; 4],
     /// Frequenza di uscita (Hz) e clock audio per campione in uscita.

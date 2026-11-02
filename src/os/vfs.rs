@@ -10,14 +10,20 @@
 use crate::adf::Adf;
 use std::path::{Path, PathBuf};
 
+#[derive(Clone)]
 pub struct Volume {
     pub name: String,
-    pub adf: Adf,
+    /// Condiviso: le copie della macchina (vedi `Machine::clone`) non duplicano i dischi.
+    pub adf: std::sync::Arc<Adf>,
 }
 
+#[derive(Clone)]
 pub struct Vfs {
     pub volumes: Vec<Volume>,
     pub save_dir: PathBuf,
+    /// Se vero le scritture vengono scartate: serve alle copie "di prova"
+    /// della macchina, che non devono toccare i salvataggi veri.
+    pub read_only: bool,
 }
 
 /// Percorso risolto: volume (indice) + percorso interno in stile AmigaDOS.
@@ -33,10 +39,14 @@ impl Vfs {
             .into_iter()
             .map(|adf| Volume {
                 name: adf.volume_name.clone(),
-                adf,
+                adf: std::sync::Arc::new(adf),
             })
             .collect();
-        Vfs { volumes, save_dir }
+        Vfs {
+            volumes,
+            save_dir,
+            read_only: false,
+        }
     }
 
     /// Risolve un nome AmigaDOS rispetto alla directory corrente.
@@ -119,6 +129,9 @@ impl Vfs {
     }
 
     pub fn write(&self, r: &Resolved, data: &[u8]) -> std::io::Result<()> {
+        if self.read_only {
+            return Ok(());
+        }
         let hp = self.host_path(r);
         if let Some(parent) = hp.parent() {
             std::fs::create_dir_all(parent)?;
@@ -127,6 +140,9 @@ impl Vfs {
     }
 
     pub fn delete(&self, r: &Resolved) -> bool {
+        if self.read_only {
+            return false;
+        }
         let hp = self.host_path(r);
         hp.is_file() && std::fs::remove_file(hp).is_ok()
     }

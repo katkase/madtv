@@ -229,16 +229,55 @@ Pezzi già pronti:
    `cargo run --release --example overlay_demo -- out.png` compone offline un
    frame con l'overlay.
 
+3. **Stato del trascinamento** (dalle registrazioni di Pam del 2 novembre,
+   in `scripts/registrazioni/`: palinsesto, studio, Movie Agency, agenzia
+   sceneggiature, news). Tutte le stanze usano la stessa routine di aggancio
+   `$030D5A(larghezza, altezza, x_presa, y_presa, testo, tipo)` e di sgancio
+   `$031016`. Variabili nel segmento dati (base `$044610`):
+   `$0448EC` immagine in mano (0 = niente), `$0448F0/F2` dimensioni,
+   `$0448F4/F6` distanza puntatore − angolo, `$044656/58` posizione disegnata
+   (−1 prima del primo disegno), `$0471C8` modalità del puntatore (2 =
+   trascinamento), `$04E962` zona sotto il punto caldo (0x0F = lista del
+   palinsesto), `$04AA60` tabella del palinsesto (giocatore × 0x5A, una word
+   per ora: codice del programma). Il pannello del palinsesto è 144×16, la
+   cassetta della Movie Agency 16×29, le notizie 144×34.
+   **Il gioco decide dove si rilascia con l'angolo in alto a sinistra
+   dell'oggetto**, non con la punta del puntatore (`$0179BC`/`$0179FC`):
+   ecco perché sembra servire precisione. Nel palinsesto la riga è
+   `(y − 4) / 16` (`$006724`), colonna programmi x 56..215, pubblicità
+   216..279; il disegno della casella aggiornata arriva circa 50 frame dopo il
+   click, ma la tabella cambia subito.
+4. **Click di prova** (`enhance::probe_drop`): invece di riscrivere le regole
+   di ogni stanza (ora corrente, blocchi occupati, valigetta...), si clona la
+   macchina (`Machine::clone`, ~2 ms: RAM, chip, sistema, CPU via serde), si
+   preme il tasto sinistro sulla copia e si guarda se entro 6 frame l'oggetto
+   viene sganciato. Copia con file system in sola lettura. Verificato: una
+   copia evolve identica all'originale (0 byte diversi dopo 1000 frame) e il
+   click di prova dà "accettato" subito prima di tutti i rilasci reali delle
+   registrazioni. Costo medio 3–8 ms, al massimo ogni 3 frame e solo quando il
+   punto caldo si sposta.
+5. **Prime evidenziazioni** (attive di default, `--originale` o F9 le
+   spengono): contorno dell'oggetto trascinato e quadratino sul punto caldo,
+   verdi se lì il rilascio sarebbe accettato, rossi se no; nel palinsesto
+   anche la casella che riceverà il programma. Vedi
+   `docs/img/evidenziazione-palinsesto.png` e
+   `docs/img/evidenziazione-movie-agency.png`.
+
+Strumenti di analisi (in `examples/`): `drag_lab` (cerca variabili correlate
+al puntatore e bandiere durante il trascinamento), `probe` (valori nel tempo,
+dump, `watch=` per le istruzioni che leggono/scrivono un indirizzo,
+`break=` per chiamate con lo stack), `drop_lab` (click di prova con
+schermate e differenze di RAM), `clone_check`, `highlight_demo` (frame alla
+risoluzione della finestra con le evidenziazioni). Il bus ha un punto di
+osservazione (`Bus::watch`) e la macchina punti di sonda (`probe_pcs`).
+
 Prossimi passi:
 
-3. Con le registrazioni di Pam (palinsesto, Movie Agency, Library...):
-   trovare lo stato del trascinamento (pannello in mano, posizione, casella di
-   destinazione, regole di accettazione) confrontando la memoria frame per
-   frame.
-4. Agganci alle funzioni del gioco (tabella indirizzo → funzione Rust), da
-   costruire sugli indirizzi trovati.
-5. Prime evidenziazioni: casella di destinazione sotto il pannello trascinato,
-   aree valide, rifiuto.
+6. Riscontro di Pam sulle evidenziazioni; poi effetti (ombra del pannello,
+   area di destinazione anche fuori dal palinsesto ricavata dalla differenza
+   tra copia con e senza click, suono di conferma).
+7. Agganci alle funzioni del gioco (tabella indirizzo → funzione Rust) e
+   riscrittura graduale, a partire da quelle trovate qui.
 
 
 
@@ -250,6 +289,7 @@ che il porting per ora salta. Schermata del palinsesto e menu muto coincidono.
 
 ## Prossimi passi
 
+0. Evidenziazioni del trascinamento: vedi "Strada verso le evidenziazioni".
 1. Conferma all'ascolto (Pam, su Windows).
 2. Verificare in WinUAE: righe colorate ai bordi durante il logo Rainbow
    Arts; velocità della tendina dei credits.

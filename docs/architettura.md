@@ -226,6 +226,26 @@ l'ingrandimento. `enhance.rs` calcola a ogni frame le forme da mostrare
 leggendo lo stato del gioco dalla memoria emulata; la finestra le compone sopra
 l'immagine.
 
+## Copie della macchina e click di prova
+
+`Machine` implementa `Clone`: RAM, chip custom e sistema operativo emulato
+vengono copiati (i dischi ADF sono condivisi con `Arc`), i registri della CPU
+passano per la serializzazione (feature `serde` del core `m68k` + `bincode`),
+perché il core non implementa `Clone`. Una copia costa circa 2 ms ed evolve
+identica all'originale. La copia ha il file system in sola lettura
+(`Vfs::read_only`): scritture e cancellazioni vengono scartate.
+
+Le evidenziazioni la usano per chiedere al gioco "se cliccassi adesso, cosa
+succederebbe?" (`enhance::probe_drop`): sulla copia si preme il tasto
+sinistro, si eseguono fino a 6 frame e si guarda se l'oggetto trascinato è
+stato sganciato. Così le regole di ogni stanza restano quelle del gioco
+originale, senza riscriverle.
+
+Per l'analisi, il bus ha un punto di osservazione (`Bus::watch`, intervallo di
+RAM: ogni accesso della CPU finisce in `Machine::watch_log` con il PC
+dell'istruzione) e la macchina dei punti di sonda (`Machine::probe_pcs`:
+quando la CPU sta per eseguire uno di quegli indirizzi annota frame e stack).
+
 ## Memoria
 
 RAM piatta di 2 MB, tutta trattata come Chip RAM (i chip sono emulati in

@@ -7,7 +7,7 @@
 
 use super::{Ctx, Os};
 
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub struct GfxState {
     /// Numero di WaitTOF eseguiti (sincronizzazioni sul vertical blank).
     pub wait_tof: u64,

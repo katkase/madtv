@@ -112,6 +112,7 @@ impl Ctx<'_> {
 }
 
 /// Allocatore di memoria semplice (first fit con unione dei blocchi liberi).
+#[derive(Clone)]
 pub struct Heap {
     /// Blocchi liberi: inizio → dimensione.
     free: BTreeMap<u32, u32>,
@@ -198,12 +199,14 @@ impl Heap {
     }
 }
 
+#[derive(Clone)]
 pub struct Library {
     pub id: LibId,
     pub base: u32,
 }
 
 /// File aperto dal programma.
+#[derive(Clone)]
 pub struct OpenFile {
     pub path: vfs::Resolved,
     pub data: Vec<u8>,
@@ -213,12 +216,14 @@ pub struct OpenFile {
 }
 
 /// Lock su file o directory.
+#[derive(Clone)]
 pub struct LockInfo {
     pub path: vfs::Resolved,
     /// Stato di ExNext: indice della prossima voce da restituire.
     pub exnext: usize,
 }
 
+#[derive(Clone)]
 pub struct Os {
     pub heap: Heap,
     pub libs: Vec<Library>,
@@ -238,7 +243,7 @@ pub struct Os {
     pub exit_stub: u32,
     /// Conteggio delle chiamate per funzione, per il rapporto finale.
     pub call_counts: BTreeMap<(LibId, u16), u64>,
-    pub trace: Option<std::io::BufWriter<std::fs::File>>,
+    pub trace: Option<std::sync::Arc<std::sync::Mutex<std::io::BufWriter<std::fs::File>>>>,
     /// Ultima funzione non implementata incontrata.
     pub missing: Option<(LibId, u16)>,
     /// Output del programma verso la console (Write su Output()).
@@ -358,8 +363,8 @@ impl Os {
     }
 
     pub fn trace_line(&mut self, s: &str) {
-        if let Some(t) = self.trace.as_mut() {
-            let _ = writeln!(t, "{s}");
+        if let Some(t) = &self.trace {
+            let _ = writeln!(t.lock().unwrap(), "{s}");
         }
     }
 
