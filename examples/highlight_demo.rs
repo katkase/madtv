@@ -71,6 +71,14 @@ fn main() {
     while m.bus.custom.frame <= last {
         lab::apply(&mut m, &script, &mut next);
         m.run_frame();
+        // Vicino ai frame richiesti va a velocità reale (50 fps), come la
+        // finestra: i click di prova lunghi girano in un thread.
+        if frames
+            .iter()
+            .any(|&t| t >= m.bus.custom.frame && t < m.bus.custom.frame + 60)
+        {
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
         let shapes = en.update(&m);
         let f = m.bus.custom.frame;
         if frames.contains(&f) {
@@ -80,12 +88,13 @@ fn main() {
         }
     }
     println!(
-        "{} click di prova in {:?} (media {:?}), tempo totale {:?}",
+        "{} click di prova in {:?} (media {:?}), {} lunghi, tempo totale {:?}",
         en.probes,
         en.probe_time,
         en.probe_time
             .checked_div(en.probes.max(1) as u32)
             .unwrap_or_default(),
+        en.landing_probes,
         t.elapsed()
     );
 }

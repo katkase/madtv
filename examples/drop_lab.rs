@@ -96,6 +96,36 @@ fn main() {
             println!("    ram: {}", out.join(" "));
         }
         let accepted = yes.bus.peek32(HELD) == 0;
+        // Dove riappare il pannello? Cerca i suoi pixel nella schermata dopo il click.
+        {
+            let d = madtv::enhance::drag_state(&m).unwrap();
+            let src = &m.bus.custom.display.front;
+            let dst = &yes.bus.custom.display.front;
+            let (hx, hy, pw, ph) = (d.hot.0, d.hot.1, d.size.0, d.size.1);
+            let mut found = vec![];
+            for y in 0..(200 - ph).max(0) {
+                'x: for x in 0..(320 - pw).max(0) {
+                    for yy in (0..ph).step_by(3) {
+                        for xx in (0..pw).step_by(2) {
+                            let (sx, sy) = (hx + xx, hy + yy);
+                            if sx < 0 || sy < 0 || sx >= 320 || sy >= 200 {
+                                continue;
+                            }
+                            if src[(sy * 320 + sx) as usize]
+                                != dst[((y + yy) * 320 + x + xx) as usize]
+                            {
+                                continue 'x;
+                            }
+                        }
+                    }
+                    found.push((x, y));
+                }
+            }
+            println!(
+                "    pannello ritrovato in: {:?}",
+                &found[..found.len().min(5)]
+            );
+        }
         if std::env::var("SHOTS").is_ok() {
             std::fs::create_dir_all("/tmp/drop").ok();
             let _ = m

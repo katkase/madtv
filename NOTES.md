@@ -263,6 +263,19 @@ Pezzi già pronti:
    `docs/img/evidenziazione-palinsesto.png` e
    `docs/img/evidenziazione-movie-agency.png`.
 
+   Aggiunta dopo il primo riscontro di Pam: **punto d'arrivo fuori dal
+   palinsesto**. Nelle news (e dove il gioco ridisegna l'oggetto uguale) la
+   casella d'arrivo si ricava con un click di prova lungo: sulla copia si
+   rilascia e si aspetta fino a 70 frame (il gioco ridisegna dopo ~40) cercando
+   i pixel del pannello nello schermo (`find_panel`, ≥ 95% dei campioni). Costa
+   ~85 ms, quindi gira in un thread (`LandingWorker`) e parte solo quando il
+   punto caldo resta fermo 5 frame su un punto accettato; l'area resta
+   evidenziata finché il punto caldo ci sta dentro. Le aree riempite saltano il
+   rettangolo dell'oggetto trascinato (`subtract`), che così resta sopra
+   l'evidenziazione. Lo strato è uno solo, sopra l'immagine Amiga già composta:
+   il gioco disegna il pannello nei suoi bitplane, non esistono livelli
+   separati.
+
 Strumenti di analisi (in `examples/`): `drag_lab` (cerca variabili correlate
 al puntatore e bandiere durante il trascinamento), `probe` (valori nel tempo,
 dump, `watch=` per le istruzioni che leggono/scrivono un indirizzo,

@@ -144,6 +144,133 @@ pub fn probe_drop(m: &Machine) -> bool {
     false
 }
 
+/// Frame che la copia aspetta, dopo il click, perché il gioco ridisegni
+/// l'oggetto al suo posto (nelle news servono ~40 frame).
+const LANDING_FRAMES: u32 = 70;
+/// Frame di immobilità del punto caldo prima di cercare il punto d'arrivo.
+const LANDING_STILL: u64 = 5;
+
+/// Pixel dell'oggetto trascinato presi dallo schermo, per ritrovarlo dopo il
+/// rilascio. Campioni a griglia all'interno del rettangolo, lontano dal
+/// puntatore (che è uno sprite sopra l'immagine).
+pub fn panel_samples(m: &Machine, d: &Drag) -> Vec<(i32, i32, u32)> {
+    let src = &m.bus.custom.display.front;
+    let ptr = m.game_pointer().unwrap_or((-100, -100));
+    let mut v = Vec::new();
+    for yy in (2..d.size.1 - 2).step_by(3) {
+        for xx in (2..d.size.0 - 2).step_by(3) {
+            let (x, y) = (d.hot.0 + xx, d.hot.1 + yy);
+            if !(0..320).contains(&x) || !(0..200).contains(&y) {
+                continue;
+            }
+            if (x - ptr.0 + 4).abs() < 20 && (y - ptr.1 + 4).abs() < 20 {
+                continue;
+            }
+            v.push((xx, yy, src[(y * 320 + x) as usize]));
+        }
+    }
+    v
+}
+
+/// Cerca nello schermo la posizione in cui i campioni coincidono (≥ 95%).
+pub fn find_panel(
+    screen: &[u32],
+    size: (i32, i32),
+    samples: &[(i32, i32, u32)],
+) -> Option<(i32, i32)> {
+    if samples.len() < 20 {
+        return None;
+    }
+    let max_miss = samples.len() / 20;
+    for y in 0..=(200 - size.1).max(0) {
+        'x: for x in 0..=(320 - size.0).max(0) {
+            let mut miss = 0;
+            for &(xx, yy, c) in samples {
+                if screen[((y + yy) * 320 + x + xx) as usize] != c {
+                    miss += 1;
+                    if miss > max_miss {
+                        continue 'x;
+                    }
+                }
+            }
+            return Some((x, y));
+        }
+    }
+    None
+}
+
+/// Click di prova lungo: dove finirà l'oggetto se rilasciato adesso?
+/// Restituisce il rettangolo in cui il gioco lo ridisegna, se lo ridisegna
+/// uguale (news, agenzie); None se sparisce (valigetta) o cambia aspetto
+/// (palinsesto). Da eseguire fuori dal ciclo della finestra: costa ~100 ms.
+pub fn probe_landing(
+    mut c: Machine,
+    d: Drag,
+    samples: Vec<(i32, i32, u32)>,
+) -> Option<(i32, i32, i32, i32)> {
+    c.bus.custom.paula.enabled = false;
+    c.bus.custom.left_button = true;
+    let mut released = false;
+    for _ in 0..PROBE_FRAMES {
+        if c.run_frame().is_some() {
+            return None;
+        }
+        if drag_state(&c).map(|e| e.image) != Some(d.image) {
+            released = true;
+            break;
+        }
+    }
+    if !released {
+        return None;
+    }
+    c.bus.custom.left_button = false;
+    for i in 1..=LANDING_FRAMES {
+        if c.run_frame().is_some() {
+            return None;
+        }
+        if i % 5 == 0 {
+            if let Some((x, y)) = find_panel(&c.bus.custom.display.front, d.size, &samples) {
+                return Some((x, y, d.size.0, d.size.1));
+            }
+        }
+    }
+    None
+}
+
+/// Lavoro per il thread dei click di prova lunghi.
+struct LandingJob {
+    machine: Machine,
+    drag: Drag,
+    samples: Vec<(i32, i32, u32)>,
+}
+
+/// Thread che esegue i click di prova lunghi senza rallentare la finestra.
+struct LandingWorker {
+    jobs: std::sync::mpsc::Sender<LandingJob>,
+    results: std::sync::mpsc::Receiver<(Drag, Option<(i32, i32, i32, i32)>)>,
+    busy: bool,
+}
+
+impl LandingWorker {
+    fn start() -> LandingWorker {
+        let (jt, jr) = std::sync::mpsc::channel::<LandingJob>();
+        let (rt, rr) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            for j in jr {
+                let r = probe_landing(j.machine, j.drag, j.samples);
+                if rt.send((j.drag, r)).is_err() {
+                    break;
+                }
+            }
+        });
+        LandingWorker {
+            jobs: jt,
+            results: rr,
+            busy: false,
+        }
+    }
+}
+
 /// Colori (0xAARRGGBB).
 const ACCEPT: u32 = 0xFF38D870;
 const REFUSE: u32 = 0xFFE84848;
@@ -160,6 +287,16 @@ pub struct Enhancer {
     /// Statistiche: click di prova eseguiti e tempo totale.
     pub probes: u64,
     pub probe_time: std::time::Duration,
+    /// Punto caldo attuale e frame da cui non si muove.
+    still: Option<((i32, i32), u64)>,
+    /// Punto d'arrivo trovato dal click di prova lungo: (immagine, punto caldo
+    /// della prova, rettangolo).
+    landing: Option<(u32, (i32, i32), (i32, i32, i32, i32))>,
+    /// Ultimo punto caldo provato con il click lungo (per non ripeterlo).
+    landing_tried: Option<(u32, (i32, i32))>,
+    worker: Option<LandingWorker>,
+    /// Click di prova lunghi eseguiti (statistica).
+    pub landing_probes: u64,
 }
 
 impl Enhancer {
@@ -194,6 +331,63 @@ impl Enhancer {
         }
     }
 
+    /// Area d'arrivo dell'oggetto (fuori dal palinsesto): la cerca in un thread
+    /// quando il punto caldo resta fermo su un punto accettato, e la mostra
+    /// finché il punto caldo ci resta dentro.
+    fn landing(
+        &mut self,
+        m: &Machine,
+        d: &Drag,
+        verdict: Option<bool>,
+    ) -> Option<(i32, i32, i32, i32)> {
+        let frame = m.bus.custom.frame;
+        match self.still {
+            Some((h, _)) if h == d.hot => {}
+            _ => self.still = Some((d.hot, frame)),
+        }
+        if let Some(w) = &mut self.worker {
+            while let Ok((jd, r)) = w.results.try_recv() {
+                w.busy = false;
+                if let Some(rect) = r {
+                    self.landing = Some((jd.image, jd.hot, rect));
+                }
+            }
+        }
+        if d.in_schedule() {
+            return None;
+        }
+        let inside = |r: (i32, i32, i32, i32)| {
+            d.hot.0 >= r.0 - 4 && d.hot.0 < r.0 + r.2 && d.hot.1 >= r.1 - 4 && d.hot.1 < r.1 + r.3
+        };
+        if let Some((img, _, r)) = self.landing {
+            if img != d.image || !inside(r) {
+                self.landing = None;
+            }
+        }
+        let still_long = self.still.is_some_and(|(_, f)| frame >= f + LANDING_STILL);
+        let tried = self.landing_tried == Some((d.image, d.hot));
+        if verdict == Some(true) && still_long && !tried && self.landing.is_none() {
+            let w = self.worker.get_or_insert_with(LandingWorker::start);
+            if !w.busy {
+                let job = LandingJob {
+                    machine: m.clone(),
+                    drag: *d,
+                    samples: panel_samples(m, d),
+                };
+                if w.jobs.send(job).is_ok() {
+                    w.busy = true;
+                    self.landing_tried = Some((d.image, d.hot));
+                    self.landing_probes += 1;
+                }
+            }
+        }
+        if verdict == Some(true) {
+            self.landing.map(|l| l.2)
+        } else {
+            None
+        }
+    }
+
     /// Forme da disegnare sopra il frame corrente.
     pub fn update(&mut self, m: &Machine) -> Vec<Shape> {
         let mut out = Vec::new();
@@ -201,10 +395,16 @@ impl Enhancer {
             match drag_state(m) {
                 Some(d) if d.drawn => {
                     let v = self.verdict(m, &d);
-                    drag_shapes(&d, v, &mut out);
+                    let target = self.landing(m, &d, v);
+                    drag_shapes(&d, v, target, &mut out);
                 }
                 Some(_) => {}
-                None => self.probe = None,
+                None => {
+                    self.probe = None;
+                    self.landing = None;
+                    self.landing_tried = None;
+                    self.still = None;
+                }
             }
         }
         if self.debug {
@@ -215,24 +415,34 @@ impl Enhancer {
 }
 
 /// Evidenziazioni del trascinamento.
-pub fn drag_shapes(d: &Drag, verdict: Option<bool>, out: &mut Vec<Shape>) {
+pub fn drag_shapes(
+    d: &Drag,
+    verdict: Option<bool>,
+    target: Option<(i32, i32, i32, i32)>,
+    out: &mut Vec<Shape>,
+) {
     let color = match verdict {
         Some(true) => ACCEPT,
         Some(false) => REFUSE,
         None => UNKNOWN,
     };
     let (hx, hy) = (d.hot.0 as f32, d.hot.1 as f32);
-    // Casella del palinsesto che riceverebbe il pannello.
+    // Area che riceverebbe l'oggetto: casella del palinsesto o punto d'arrivo
+    // trovato dal click di prova lungo. Il riempimento salta il rettangolo
+    // dell'oggetto, che così resta "sopra" l'evidenziazione.
     if verdict != Some(false) {
-        if let Some((x, y, w, h)) = d.schedule_cell() {
-            let (x, y, w, h) = (x as f32, y as f32, w as f32, h as f32);
-            out.push(Shape::Fill {
-                x,
-                y,
-                w,
-                h,
-                color: (color & 0xFF_FFFF) | 0x40 << 24,
-            });
+        if let Some(cell) = d.schedule_cell().or(target) {
+            let panel = (d.hot.0, d.hot.1, d.size.0, d.size.1);
+            for (x, y, w, h) in subtract(cell, panel) {
+                out.push(Shape::Fill {
+                    x: x as f32,
+                    y: y as f32,
+                    w: w as f32,
+                    h: h as f32,
+                    color: (color & 0xFF_FFFF) | 0x50 << 24,
+                });
+            }
+            let (x, y, w, h) = (cell.0 as f32, cell.1 as f32, cell.2 as f32, cell.3 as f32);
             out.push(Shape::Rect {
                 x,
                 y,
@@ -267,6 +477,30 @@ pub fn drag_shapes(d: &Drag, verdict: Option<bool>, out: &mut Vec<Shape>) {
         h: 3.0,
         color,
     });
+}
+
+/// Parti di `a` fuori da `b` (al più 4 rettangoli), formato (x, y, w, h).
+pub fn subtract(a: (i32, i32, i32, i32), b: (i32, i32, i32, i32)) -> Vec<(i32, i32, i32, i32)> {
+    let (ax1, ay1) = (a.0 + a.2, a.1 + a.3);
+    let (bx0, by0) = (b.0.max(a.0), b.1.max(a.1));
+    let (bx1, by1) = ((b.0 + b.2).min(ax1), (b.1 + b.3).min(ay1));
+    if bx0 >= bx1 || by0 >= by1 {
+        return vec![a];
+    }
+    let mut v = Vec::new();
+    if by0 > a.1 {
+        v.push((a.0, a.1, a.2, by0 - a.1));
+    }
+    if ay1 > by1 {
+        v.push((a.0, by1, a.2, ay1 - by1));
+    }
+    if bx0 > a.0 {
+        v.push((a.0, by0, bx0 - a.0, by1 - by0));
+    }
+    if ax1 > bx1 {
+        v.push((bx1, by0, ax1 - bx1, by1 - by0));
+    }
+    v
 }
 
 fn debug_shapes(m: &Machine, out: &mut Vec<Shape>) {
@@ -322,6 +556,21 @@ mod tests {
             zone,
             drawn: true,
         }
+    }
+
+    #[test]
+    fn sottrazione_di_rettangoli() {
+        let area = |v: &[(i32, i32, i32, i32)]| v.iter().map(|r| r.2 * r.3).sum::<i32>();
+        // Pannello che copre in parte la casella: resta casella − intersezione.
+        let r = subtract((72, 68, 144, 16), (83, 70, 144, 16));
+        assert_eq!(area(&r), 144 * 16 - (216 - 83) * 14);
+        // Nessuna intersezione: la casella intera.
+        assert_eq!(
+            subtract((0, 0, 10, 10), (20, 20, 5, 5)),
+            vec![(0, 0, 10, 10)]
+        );
+        // Copertura totale: niente.
+        assert!(subtract((5, 5, 10, 10), (0, 0, 30, 30)).is_empty());
     }
 
     #[test]
