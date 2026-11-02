@@ -46,7 +46,10 @@ for the blitter. Instead of rewriting it from scratch, the port:
 
 Details are in [docs/architecture.md](docs/architecture.md); the analysis of
 the two original executables (Amiga and DOS) is in
-[docs/analysis.md](docs/analysis.md).
+[docs/analysis.md](docs/analysis.md). The **graphics encyclopedia**
+([docs/graphics/](docs/graphics/README.md)) explains how the game stores and
+draws its graphics, with a catalogue of every file; the pictures are
+extracted from your own disks with `cargo run --release --example extract_assets`.
 
 ## Building and running (Windows)
 
@@ -140,7 +143,8 @@ src/
   machine.rs    CPU + bus + operating system; main loop
   os/           emulated AmigaOS: exec, dos, graphics, intuition, virtual file system
   main.rs       command-line program
-docs/           technical documentation (English); docs/it/ = Italian version
+docs/           technical documentation (English); docs/it/ = Italian version;
+                docs/graphics/ = graphics encyclopedia
 scripts/        sample action scripts; registrazioni/ = test recordings
 examples/       analysis tools (drag_lab, probe, drop_lab, highlight_demo...)
 NOTES.md        work status and next steps (NOTES.it.md in Italian)

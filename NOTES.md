@@ -302,6 +302,20 @@ Next steps:
 7. Hooks into the game functions (address → Rust function table) and gradual
    rewrite, starting from the ones found here.
 
+## Graphics extraction and encyclopedia (from 2 November 2026)
+
+First step towards replacing the assets: understanding how the game stores
+them. Documented in [docs/graphics/](docs/graphics/README.md) (format,
+loaders, decompressor, memory layout, palette, rooms, drawing routines) with
+a catalogue of all 147 graphics files. Key facts: `NNN.HES` files with an
+image count and a width/height pair per image, compressed bitplanes,
+decompressor `$042542` called by `$013114` (no mask) / `$013192` (mask);
+in memory `{width in bytes, height, pointer}` entries; 5 interleaved planes,
+mask plane first when present; one global palette `MTV1:001.HES`; rooms are
+two 160×109 halves (files N+50 and N). `examples/extract_assets` runs the
+game's decompressor in the emulator and writes PNGs to `assets/` (ignored by
+git: the artwork stays out of the repository).
+
 ## Game functions rewritten in Rust (from 2 November 2026)
 
 Pam reported that the original game is slow when it draws large detail

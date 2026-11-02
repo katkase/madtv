@@ -46,6 +46,10 @@ per il blitter. Invece di riscriverlo da zero, il porting:
 
 I dettagli sono in [docs/it/architettura.md](docs/it/architettura.md); l'analisi dei
 due eseguibili originali (Amiga e DOS) in [docs/it/analisi.md](docs/it/analisi.md).
+L'**enciclopedia della grafica** ([docs/it/grafica/](docs/it/grafica/README.md))
+spiega come il gioco conserva e disegna la grafica, con il catalogo di tutti i
+file; le immagini si estraggono dai propri dischi con
+`cargo run --release --example extract_assets`.
 
 ## Compilare ed eseguire (Windows)
 
@@ -140,7 +144,8 @@ src/
   machine.rs    CPU + bus + sistema operativo; ciclo principale
   os/           AmigaOS emulato: exec, dos, graphics, intuition, file system virtuale
   main.rs       programma a riga di comando
-docs/           documentazione tecnica (inglese); docs/it/ = versione italiana
+docs/           documentazione tecnica (inglese); docs/it/ = versione italiana;
+                docs/it/grafica/ = enciclopedia della grafica
 scripts/        esempi di script di azioni; registrazioni/ = partite di prova
 examples/       strumenti di analisi (drag_lab, probe, drop_lab, highlight_demo...)
 NOTES.it.md     stato del lavoro e prossimi passi (NOTES.md in inglese)

@@ -312,6 +312,21 @@ Prossimi passi:
    riscrittura graduale, a partire da quelle trovate qui.
 
 
+## Estrazione della grafica ed enciclopedia (dal 2 novembre 2026)
+
+Primo passo verso la sostituzione degli asset: capire come il gioco li
+conserva. Documentato in [docs/it/grafica/](docs/it/grafica/README.md)
+(formato, caricatori, decompressore, disposizione in memoria, tavolozza,
+stanze, routine di disegno) con il catalogo di tutti i 147 file di grafica.
+In sintesi: file `NNN.HES` con numero di immagini e una coppia
+larghezza/altezza per immagine, bitplane compressi, decompressore `$042542`
+chiamato da `$013114` (senza maschera) / `$013192` (con maschera); in memoria
+voci `{larghezza in byte, altezza, puntatore}`; 5 piani interleaved, con la
+maschera prima se presente; una sola tavolozza globale `MTV1:001.HES`; le
+stanze sono due metà da 160×109 (file N+50 e N). `examples/extract_assets`
+esegue il decompressore del gioco nell'emulatore e scrive i PNG in `assets/`
+(esclusa da git: la grafica resta fuori dal repository).
+
 ## Funzioni del gioco riscritte in Rust (dal 2 novembre 2026)
 
 Pam ha segnalato che il gioco originale è lento quando disegna finestre di
