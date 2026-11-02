@@ -88,6 +88,8 @@ Opzioni utili (`madtv --help` per l'elenco completo):
 | `--cpu-speed P` | velocità della CPU: `auto` (default nella finestra) o una percentuale fissa di un A500, es. `300` |
 | `--headless --frames N` | nessuna finestra: esegue N frame (50 = 1 secondo) e salva `shots\final.png` |
 | `--script "1290:goto 55 101; 1320:click; 2000:shot capo"` | azioni automatiche a frame stabiliti (anche da file: `--script @scripts\nuova-partita.txt`) |
+| `--record partita.txt` | registra la partita (mouse, tasti): il file la riproduce identica con `--headless --script @partita.txt` |
+| `--debug-overlay` | mirino sulla punta del puntatore (verifica dello strato di sovrapposizione) |
 | `--trace trace.log` | registra ogni chiamata di sistema del gioco |
 | `--dump ram.bin` | salva la RAM emulata alla fine (per l'analisi con un disassembler) |
 
@@ -113,7 +115,9 @@ src/
   audio.rs      uscita verso la scheda audio del PC (cpal)
   input.rs      mouse, tastiera, script di azioni automatiche
   iff.rs        decodifica delle immagini IFF ILBM (schermata dei credits)
-  window.rs     finestra (minifb): intro, credits, gioco
+  window.rs     finestra (minifb): intro, credits, gioco, registrazione
+  overlay.rs    strato di sovrapposizione nitido (evidenziazioni)
+  enhance.rs    miglioramenti dell'interfaccia sopra il gioco
   machine.rs    CPU + bus + sistema operativo; ciclo principale
   os/           AmigaOS emulato: exec, dos, graphics, intuition, file system virtuale
   main.rs       programma a riga di comando

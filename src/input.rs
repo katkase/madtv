@@ -166,6 +166,10 @@ pub enum Action {
     /// Scrive un testo carattere per carattere.
     Type(String),
     Shot(String),
+    /// Orologio di sistema fisso (secondi Unix), per riproduzioni identiche.
+    Clock(u64),
+    /// Velocità della CPU: None = turbo automatico, Some(p) = percentuale fissa.
+    Cpu(Option<u32>),
 }
 
 /// Analizza uno script: voci "FRAME:azione argomenti" separate da ';' o a capo.
@@ -199,6 +203,11 @@ pub fn parse_script(src: &str) -> Result<Vec<(u64, Action)>, String> {
             let n = args
                 .first()
                 .ok_or(format!("tasto mancante in \"{item}\""))?;
+            // Anche come codice tasto Amiga esadecimale: $20
+            if let Some(hex) = n.strip_prefix('$') {
+                return u8::from_str_radix(hex, 16)
+                    .map_err(|_| format!("codice tasto non valido: {n}"));
+            }
             key_code(n).ok_or(format!("tasto sconosciuto: {n}"))
         };
         let a = match cmd.as_str() {
@@ -214,6 +223,19 @@ pub fn parse_script(src: &str) -> Result<Vec<(u64, Action)>, String> {
             "key" => Action::Key(keyarg()?),
             "type" => Action::Type(args.join(" ")),
             "shot" => Action::Shot(args.first().unwrap_or(&"shot").to_string()),
+            "clock" => Action::Clock(
+                args.first()
+                    .and_then(|s| s.parse().ok())
+                    .ok_or(format!("orologio non valido in \"{item}\""))?,
+            ),
+            "cpu" => match args.first() {
+                Some(&"auto") => Action::Cpu(None),
+                Some(p) => Action::Cpu(Some(
+                    p.parse()
+                        .map_err(|_| format!("velocità non valida in \"{item}\""))?,
+                )),
+                None => return Err(format!("velocità mancante in \"{item}\"")),
+            },
             _ => return Err(format!("azione sconosciuta: {cmd}")),
         };
         out.push((frame, a));

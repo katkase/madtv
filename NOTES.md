@@ -203,7 +203,44 @@ Hardware usato direttamente:
   `MADTV_ARGS` per gli argomenti); `cargo run --release --example show_iff
   -- u3.lbm out.png` decodifica un'immagine IFF.
 
-## Confronto con WinUAE (1 novembre 2026)
+## Strada verso le evidenziazioni (dal 2 novembre 2026)
+
+Obiettivo di Pam: rendere più intuitive le interazioni di trascinamento
+(pannelli presi da liste e rilasciati nel palinsesto, nella valigetta della
+Movie Agency, nella Library, sulla bacheca dell'ufficio, nelle news) con
+evidenziazioni ed effetti. Il meccanismo del gioco funziona bene: manca il
+riscontro visivo. Poi: riscrittura graduale delle funzioni in Rust, risoluzione
+più alta e grafica sostitutiva.
+
+Pezzi già pronti:
+
+1. **Registrazione delle partite** (`--record FILE`): mouse (movimenti
+   effettivamente inviati al gioco), tasti, orologio di sistema e modalità
+   della CPU, frame per frame. Il file è uno script: `madtv --headless --script
+   @FILE --frames N` riproduce la partita identica. Verificato: due
+   riproduzioni danno la stessa memoria byte per byte. Nel tratto provato il
+   gioco non legge mai l'orologio (DateStamp), ma lo registriamo comunque.
+2. **Strato di sovrapposizione** (`overlay.rs`): forme in coordinate del gioco
+   disegnate dopo l'ingrandimento, con trasparenza, nitide alla risoluzione
+   della finestra. `enhance.rs` produrrà le evidenziazioni a ogni frame
+   leggendo lo stato del gioco. `--debug-overlay` mostra il mirino sulla
+   punta del puntatore (allineamento verificato al pixel, vedi
+   `docs/img/overlay-mirino.png`) e i limiti del puntatore;
+   `cargo run --release --example overlay_demo -- out.png` compone offline un
+   frame con l'overlay.
+
+Prossimi passi:
+
+3. Con le registrazioni di Pam (palinsesto, Movie Agency, Library...):
+   trovare lo stato del trascinamento (pannello in mano, posizione, casella di
+   destinazione, regole di accettazione) confrontando la memoria frame per
+   frame.
+4. Agganci alle funzioni del gioco (tabella indirizzo → funzione Rust), da
+   costruire sugli indirizzi trovati.
+5. Prime evidenziazioni: casella di destinazione sotto il pannello trascinato,
+   aree valide, rifiuto.
+
+
 
 Configurazione che funziona: A500, KS 1.3 rev 34.5, 1 MB Chip + 512 KB Slow,
 disco 1 in DF0 e disco 2 in DF1. Con Quickstart scelto prima della scansione

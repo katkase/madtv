@@ -258,6 +258,10 @@ pub struct Os {
     pub exception: Option<u8>,
     /// Numero di Open/Read eseguiti (usato dal turbo automatico).
     pub disk_activity: u64,
+    /// Orologio fisso (secondi Unix all'avvio): se impostato, DateStamp restituisce
+    /// questo istante più il tempo emulato, così una partita registrata si
+    /// riproduce identica (il gioco potrebbe usare l'ora come seme casuale).
+    pub clock_override: Option<u64>,
 }
 
 impl Os {
@@ -292,6 +296,7 @@ impl Os {
             pending_frames: 0,
             exception: None,
             disk_activity: 0,
+            clock_override: None,
         }
     }
 

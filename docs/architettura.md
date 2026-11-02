@@ -209,6 +209,23 @@ dettare il ritmo, così non si accumulano né buchi né ritardo. Durante l'avant
 veloce l'audio viene scartato. Senza dispositivo audio la finestra torna al
 ritmo fisso di 50 frame al secondo.
 
+## Registrazione e riproduzione
+
+L'emulazione è deterministica: a parità di input frame per frame, lo stato
+della macchina è identico. `--record` scrive in uno script i movimenti del
+mouse effettivamente inviati al gioco, i tasti, l'orologio di sistema
+(`clock`, che fissa ciò che restituisce DateStamp) e la modalità della CPU
+(`cpu`). Rigiocato con `--headless --script @FILE`, ricostruisce la partita:
+è lo strumento per analizzare comportamenti che si raggiungono solo giocando.
+
+## Strato di sovrapposizione
+
+`overlay.rs` disegna forme (contorni, riempimenti trasparenti, linee) in
+coordinate del gioco, ma alla risoluzione della finestra, dopo
+l'ingrandimento. `enhance.rs` calcola a ogni frame le forme da mostrare
+leggendo lo stato del gioco dalla memoria emulata; la finestra le compone sopra
+l'immagine.
+
 ## Memoria
 
 RAM piatta di 2 MB, tutta trattata come Chip RAM (i chip sono emulati in

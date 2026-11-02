@@ -14,8 +14,10 @@
 //! gioco è leggibile (`Machine::game_mouse`) l'allineamento è assoluto.
 
 use crate::audio::AudioOut;
+use crate::enhance::Enhancer;
 use crate::input;
 use crate::machine::{Machine, StopReason};
+use crate::overlay::{Canvas, Shape};
 use crate::render::WIDTH;
 use minifb::{Key, KeyRepeat, MouseButton, MouseMode, Window, WindowOptions};
 use std::path::PathBuf;
@@ -55,6 +57,12 @@ pub struct Frontend {
     mouse_ratio: f32,
     shots: u32,
     warned_rows: bool,
+    /// Registrazione della partita (script riproducibile), se attiva.
+    record: Option<std::io::BufWriter<std::fs::File>>,
+    /// Stato dei tasti del mouse al frame precedente (per registrare i cambi).
+    rec_buttons: (bool, bool),
+    /// Miglioramenti dell'interfaccia disegnati nello strato di sovrapposizione.
+    pub enhancer: Enhancer,
 }
 
 impl Frontend {
@@ -97,7 +105,23 @@ impl Frontend {
             mouse_ratio: o.mouse_ratio,
             shots: 0,
             warned_rows: false,
+            record: None,
+            rec_buttons: (false, false),
+            enhancer: Enhancer::default(),
         })
+    }
+
+    /// Attiva la registrazione della partita in `path` (vedi `--record`).
+    pub fn start_recording(&mut self, path: &std::path::Path) -> std::io::Result<()> {
+        self.record = Some(std::io::BufWriter::new(std::fs::File::create(path)?));
+        Ok(())
+    }
+
+    fn rec(&mut self, frame: u64, what: &str) {
+        if let Some(w) = self.record.as_mut() {
+            use std::io::Write;
+            let _ = writeln!(w, "{frame}: {what}");
+        }
     }
 
     /// Prepara una macchina per l'uscita audio di questa finestra.
@@ -134,7 +158,7 @@ impl Frontend {
 
     /// Ingrandisce un'immagine larga WIDTH pixel e la mostra dentro il margine.
     /// False se la finestra è chiusa.
-    fn present(&mut self, src: &[u32]) -> bool {
+    fn present(&mut self, src: &[u32], shapes: &[Shape]) -> bool {
         let s = self.scale;
         let mg = self.margin;
         let w = (WIDTH + 2 * mg) * s;
@@ -158,6 +182,16 @@ impl Frontend {
             for k in 1..s {
                 self.buf.copy_within(top * w..(top + 1) * w, (top + k) * w);
             }
+        }
+        if !shapes.is_empty() {
+            let mut c = Canvas {
+                buf: &mut self.buf,
+                width: w,
+                height: h,
+                scale: s as f32,
+                origin: (mg * s, mg * s),
+            };
+            c.draw(shapes);
         }
         self.win.update_with_buffer(&self.buf, w, h).is_ok() && self.win.is_open()
     }
@@ -203,7 +237,7 @@ impl Frontend {
                 std::thread::sleep(std::time::Duration::from_millis(20));
             }
             let px = std::mem::take(&mut shown);
-            let ok = self.present(&px);
+            let ok = self.present(&px, &[]);
             shown = px;
             if !ok {
                 return false;
@@ -228,6 +262,38 @@ impl Frontend {
     /// click o un tasto la interrompe.
     pub fn run(&mut self, m: &mut Machine, skippable: bool) -> RunEnd {
         self.attach_audio(m);
+        if !skippable && self.record.is_some() {
+            // Orologio fisso e modalità della CPU: la riproduzione sarà identica.
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+            let clock = *m.os.clock_override.get_or_insert(now);
+            let f = m.bus.custom.frame;
+            if let Some(w) = self.record.as_mut() {
+                use std::io::Write;
+                let _ = writeln!(w, "# Registrazione di Mad TV: riproducila con");
+                let _ = writeln!(w, "#   madtv --headless --script @questo_file --frames N");
+                let _ = writeln!(w, "# Formato: FRAME: azione (vedi madtv --help)");
+            }
+            self.rec(f, &format!("clock {clock}"));
+            let cpu = if m.auto_turbo {
+                "auto".to_string()
+            } else {
+                m.cpu_speed.to_string()
+            };
+            self.rec(f, &format!("cpu {cpu}"));
+        }
+        let result = self.run_inner(m, skippable);
+        if let Some(w) = self.record.as_mut() {
+            use std::io::Write;
+            let _ = writeln!(w, "{}: shot fine", m.bus.custom.frame);
+            let _ = w.flush();
+        }
+        result
+    }
+
+    fn run_inner(&mut self, m: &mut Machine, skippable: bool) -> RunEnd {
         let s = self.scale as f32;
         let mut last_pos: Option<(f32, f32)> = None;
         let mut armed = false;
@@ -254,6 +320,13 @@ impl Frontend {
             if self.win.is_key_pressed(Key::F10, KeyRepeat::No) {
                 // Turbo automatico (default) oppure velocità sempre fissa.
                 m.auto_turbo = !m.auto_turbo;
+                let f = m.bus.custom.frame;
+                let cpu = if m.auto_turbo {
+                    "auto".to_string()
+                } else {
+                    m.cpu_speed.to_string()
+                };
+                self.rec(f, &format!("cpu {cpu}"));
                 if m.auto_turbo {
                     println!("CPU: turbo automatico durante i caricamenti");
                 } else {
@@ -302,8 +375,13 @@ impl Frontend {
                 }
             }
 
+            let shapes = if skippable {
+                Vec::new()
+            } else {
+                self.enhancer.update(m)
+            };
             let px = std::mem::take(&mut m.bus.custom.display.front);
-            let ok = self.present(&px);
+            let ok = self.present(&px, &shapes);
             m.bus.custom.display.front = px;
             if !ok {
                 break;
@@ -323,6 +401,7 @@ impl Frontend {
                     let (dx, dy) = input::pointer_step(&g, (gx as i32, gy as i32));
                     if dx != 0 || dy != 0 {
                         input::mouse_move(&mut m.bus.custom, dx, dy);
+                        self.rec(m.bus.custom.frame, &format!("move {dx} {dy}"));
                     }
                     *last_pos = Some((gx, gy));
                 }
@@ -344,19 +423,29 @@ impl Frontend {
                 }
             }
         }
-        input::mouse_buttons(
-            &mut m.bus.custom,
+        let buttons = (
             self.win.get_mouse_down(MouseButton::Left),
             self.win.get_mouse_down(MouseButton::Right),
         );
+        input::mouse_buttons(&mut m.bus.custom, buttons.0, buttons.1);
+        let f = m.bus.custom.frame;
+        if buttons.0 != self.rec_buttons.0 {
+            self.rec(f, if buttons.0 { "down" } else { "up" });
+        }
+        if buttons.1 != self.rec_buttons.1 {
+            self.rec(f, if buttons.1 { "rdown" } else { "rup" });
+        }
+        self.rec_buttons = buttons;
         for k in self.win.get_keys_pressed(KeyRepeat::No) {
             if let Some(code) = amiga_key(k) {
                 input::key(&mut m.bus.custom, code, true);
+                self.rec(f, &format!("keydown ${code:02x}"));
             }
         }
         for k in self.win.get_keys_released() {
             if let Some(code) = amiga_key(k) {
                 input::key(&mut m.bus.custom, code, false);
+                self.rec(f, &format!("keyup ${code:02x}"));
             }
         }
     }

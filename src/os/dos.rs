@@ -234,10 +234,14 @@ pub fn call(os: &mut Os, c: &mut Ctx, idx: u16) -> Option<String> {
         // DateStamp(ds d1): giorni dal 1/1/1978, minuti, tick (1/50 s)
         27 => {
             let ds = c.d(1);
-            let now = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs())
-                .unwrap_or(0);
+            let now = match os.clock_override {
+                // Orologio fisso + tempo emulato (50 frame al secondo).
+                Some(base) => base + c.bus.custom.frame / 50,
+                None => std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0),
+            };
             let amiga = now.saturating_sub(252_460_800); // 1978-01-01
             c.bus.poke32(ds, (amiga / 86400) as u32);
             c.bus.poke32(ds + 4, ((amiga % 86400) / 60) as u32);

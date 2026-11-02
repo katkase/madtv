@@ -47,7 +47,14 @@ F11 tenuto premuto = avanti veloce, F12 = screenshot).
                        key NOME | keydown NOME | keyup NOME   tasti (A, ENTER, F1...)
                        type TESTO   scrive un testo
                        shot NOME    salva shots/NOME.png
+                       clock SECONDI   orologio di sistema fisso (riproducibilità)
+                       cpu auto|P   velocità della CPU
+                     Le registrazioni fatte con --record sono script validi.
   --wav FILE         (headless) registra l'audio del gioco in un file WAV
+  --debug-overlay    mostra il mirino sulla punta del puntatore e l'area del
+                     puntatore (verifica dello strato di sovrapposizione)
+  --record FILE      registra la partita nella finestra (mouse, tasti, orologio):
+                     il file è uno script che la riproduce identica
   --trace FILE       scrive ogni chiamata di sistema in FILE
   --dump FILE        salva la RAM emulata (2 MB) in FILE all'arresto
   --program NOME     esegue un altro programma del disco 1 invece di mtv (diagnostica)
@@ -80,6 +87,8 @@ struct Opts {
     dump: Option<PathBuf>,
     wav: Option<PathBuf>,
     program: Option<String>,
+    record: Option<PathBuf>,
+    debug_overlay: bool,
 }
 
 fn parse_args() -> Result<Opts, String> {
@@ -107,6 +116,8 @@ fn parse_args() -> Result<Opts, String> {
         dump: None,
         wav: None,
         program: None,
+        record: None,
+        debug_overlay: false,
     };
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
@@ -149,6 +160,8 @@ fn parse_args() -> Result<Opts, String> {
             "--dump" => o.dump = Some(val()?.into()),
             "--wav" => o.wav = Some(val()?.into()),
             "--program" => o.program = Some(val()?),
+            "--record" => o.record = Some(val()?.into()),
+            "--debug-overlay" => o.debug_overlay = true,
             "--help" | "-h" => {
                 print!("{HELP}");
                 std::process::exit(0);
@@ -379,6 +392,15 @@ fn main() {
                 match Frontend::new(&wo) {
                     None => StopReason::FrameLimit,
                     Some(mut fe) => {
+                        fe.enhancer.debug = o.debug_overlay;
+                        if let Some(r) = &o.record {
+                            match fe.start_recording(r) {
+                                Ok(()) => println!("registrazione: {}", r.display()),
+                                Err(e) => {
+                                    eprintln!("impossibile registrare in {}: {e}", r.display())
+                                }
+                            }
+                        }
                         let go_on = !o.intro
                             || !o.script.is_empty()
                             || play_intro(&mut fe, &intro_disks, &o);
@@ -527,6 +549,15 @@ fn apply_actions(m: &mut Machine, o: &Opts, next: &mut usize, target: &mut Optio
         match &o.script[*next].1 {
             Action::Move(dx, dy) => input::mouse_move(c, *dx, *dy),
             Action::Goto(x, y) => *target = Some((*x, *y)),
+            Action::Clock(t) => m.os.clock_override = Some(*t),
+            Action::Cpu(None) => {
+                m.cpu_speed = 100;
+                m.auto_turbo = true;
+            }
+            Action::Cpu(Some(p)) => {
+                m.cpu_speed = (*p).clamp(25, 2000);
+                m.auto_turbo = false;
+            }
             Action::LeftDown => c.left_button = true,
             Action::LeftUp => c.left_button = false,
             Action::RightDown => c.right_button = true,
