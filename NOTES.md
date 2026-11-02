@@ -270,9 +270,9 @@ Pezzi già pronti:
    i pixel del pannello nello schermo (`find_panel`, ≥ 95% dei campioni). Costa
    ~85 ms, quindi gira in un thread (`LandingWorker`) e parte solo quando il
    punto caldo resta fermo 5 frame su un punto accettato; l'area resta
-   evidenziata finché il punto caldo ci sta dentro. Le aree riempite saltano il
-   rettangolo dell'oggetto trascinato (`subtract`), che così resta sopra
-   l'evidenziazione. Lo strato è uno solo, sopra l'immagine Amiga già composta:
+   evidenziata finché il punto caldo ci sta dentro. Riempimento e contorno
+   dell'area d'arrivo saltano il rettangolo dell'oggetto trascinato (forma
+   `Mask` dello strato), che così resta sopra l'evidenziazione. Lo strato è uno solo, sopra l'immagine Amiga già composta:
    il gioco disegna il pannello nei suoi bitplane, non esistono livelli
    separati.
 

@@ -428,21 +428,24 @@ pub fn drag_shapes(
     };
     let (hx, hy) = (d.hot.0 as f32, d.hot.1 as f32);
     // Area che riceverebbe l'oggetto: casella del palinsesto o punto d'arrivo
-    // trovato dal click di prova lungo. Il riempimento salta il rettangolo
-    // dell'oggetto, che così resta "sopra" l'evidenziazione.
+    // trovato dal click di prova lungo. Riempimento e contorno saltano il
+    // rettangolo dell'oggetto (maschera), che così resta "sopra".
     if verdict != Some(false) {
-        if let Some(cell) = d.schedule_cell().or(target) {
-            let panel = (d.hot.0, d.hot.1, d.size.0, d.size.1);
-            for (x, y, w, h) in subtract(cell, panel) {
-                out.push(Shape::Fill {
-                    x: x as f32,
-                    y: y as f32,
-                    w: w as f32,
-                    h: h as f32,
-                    color: (color & 0xFF_FFFF) | 0x50 << 24,
-                });
-            }
-            let (x, y, w, h) = (cell.0 as f32, cell.1 as f32, cell.2 as f32, cell.3 as f32);
+        if let Some((x, y, w, h)) = d.schedule_cell().or(target) {
+            let (x, y, w, h) = (x as f32, y as f32, w as f32, h as f32);
+            out.push(Shape::Mask {
+                x: d.hot.0 as f32,
+                y: d.hot.1 as f32,
+                w: d.size.0 as f32,
+                h: d.size.1 as f32,
+            });
+            out.push(Shape::Fill {
+                x,
+                y,
+                w,
+                h,
+                color: (color & 0xFF_FFFF) | 0x50 << 24,
+            });
             out.push(Shape::Rect {
                 x,
                 y,
@@ -451,6 +454,7 @@ pub fn drag_shapes(
                 color,
                 thickness: 2,
             });
+            out.push(Shape::Unmask);
         }
     }
     // Contorno dell'oggetto trascinato.
