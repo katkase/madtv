@@ -5,7 +5,7 @@
 //! mostrare immagini (la schermata dei credits), come faceva la
 //! startup-sequence del disco originale.
 //!
-//! Tasti speciali: F9 = evidenziazioni sì/no, F10 = turbo automatico sì/no, F11 (tenuto premuto) = avanti
+//! Tasti speciali: F9 = evidenziazioni sì/no (solo con --dev), F10 = turbo automatico sì/no, F11 (tenuto premuto) = avanti
 //! veloce, F12 = screenshot. Durante l'intro un click o un tasto la salta.
 //!
 //! Il gioco disegna da sé il puntatore del mouse, quindi il cursore di sistema
@@ -63,6 +63,8 @@ pub struct Frontend {
     rec_buttons: (bool, bool),
     /// Miglioramenti dell'interfaccia disegnati nello strato di sovrapposizione.
     pub enhancer: Enhancer,
+    /// Modalità sviluppo (`--dev`): strato di sovrapposizione ed evidenziazioni.
+    pub dev: bool,
 }
 
 impl Frontend {
@@ -107,7 +109,8 @@ impl Frontend {
             warned_rows: false,
             record: None,
             rec_buttons: (false, false),
-            enhancer: Enhancer::new(true),
+            enhancer: Enhancer::new(false),
+            dev: false,
         })
     }
 
@@ -317,7 +320,7 @@ impl Frontend {
                 let px = m.bus.custom.display.front.clone();
                 self.screenshot(&px);
             }
-            if self.win.is_key_pressed(Key::F9, KeyRepeat::No) {
+            if self.dev && self.win.is_key_pressed(Key::F9, KeyRepeat::No) {
                 self.enhancer.highlights = !self.enhancer.highlights;
                 println!(
                     "evidenziazioni {}",
@@ -386,7 +389,9 @@ impl Frontend {
                 }
             }
 
-            let shapes = if skippable {
+            // Fuori dalla modalità sviluppo lo strato non esiste: niente copie
+            // della macchina, niente click di prova, l'immagine è solo il gioco.
+            let shapes = if skippable || !self.dev {
                 Vec::new()
             } else {
                 self.enhancer.update(m)

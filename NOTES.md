@@ -1,330 +1,331 @@
-# Note di lavoro
+# Work notes
 
-Questo file è la "memoria" del progetto tra una sessione e l'altra: stato,
-scoperte, decisioni e prossimi passi. Va aggiornato alla fine di ogni sessione.
+*English · [Italiano](NOTES.it.md)*
 
-## Stato attuale (fine fase 3, 1 novembre 2026)
+This file is the project's "memory" between sessions: status, findings,
+decisions and next steps. It should be updated at the end of every session.
 
-- **Giocabile in una finestra** (minifb, 50 Hz, 960×600 di default), con mouse
-  e tastiera: confermato da Pam su Windows con una partita vera (palinsesto,
-  programmi in onda, orologio). Provato via script: nuova partita, vista dell'edificio, dialoghi
-  del capo, modifica dei nomi dei giocatori con la tastiera.
-- Il caricamento iniziale (circa 25 s a velocità reale) viene accelerato in
-  automatico finché lo schermo è nero; F11 tenuto premuto = avanti veloce.
-- Velocità dell'emulazione: circa 1.000 frame/s (20 volte il tempo reale).
-- **Audio**: Paula emulata (4 canali DMA, ricarica con interrupt, modo
-  manuale, filtri A500 e LED), uscita con `cpal`; nella finestra è la scheda
-  audio a dettare il ritmo dei frame. Da confermare all'ascolto su Windows.
-- La modalità senza finestra (`--headless`) resta, con gli script di azioni,
-  per test e analisi.
+## Current status (end of phase 3, 1 November 2026)
 
-### Storia
+- **Playable in a window** (minifb, 50 Hz), with mouse and keyboard: confirmed
+  by Pam on Windows with a real game (schedule, programmes on air, clock).
+  Tested via script: new game, building view, the boss's dialogues, editing
+  player names with the keyboard.
+- The initial loading (about 25 s at real speed) is sped up automatically
+  while the screen is black; holding F11 = fast forward.
+- Emulation speed: about 1,000 frames/s (20 times real time).
+- **Audio**: Paula emulated (4 DMA channels, reload with interrupt, manual
+  mode, A500 and LED filters), output through `cpal`; in the window the sound
+  card sets the frame pace. Confirmed faithful by ear by Pam.
+- Windowless mode (`--headless`) remains, with action scripts, for testing and
+  analysis.
 
-- Fase 1: avvio fino alla schermata di selezione dei giocatori.
-- Fase 2: renderer riga per riga, sprite, finestra, mouse, tastiera, script.
-- Fase 3: audio, intro originale (logo Rainbow Arts e credits).
-- Correzioni dopo la prova di Pam su Windows: puntatore che sfarfallava
-  (soprattutto ai bordi), ritardo nell'apertura delle finestre del gioco,
-  puntatore che saltava sulle zone con etichetta al passaggio del mouse,
-  animazioni troppo veloci con la CPU al 300% (da cui il turbo automatico).
+### History
 
-## Versione dei dischi
+- Phase 1: boot up to the player selection screen.
+- Phase 2: line-by-line renderer, sprites, window, mouse, keyboard, scripts.
+- Phase 3: audio, original intro (Rainbow Arts logo and credits).
+- Fixes after Pam's test on Windows: flickering pointer (especially at the
+  edges), delay when opening the game's windows, pointer jumping over areas
+  with mouse-over labels, animations too fast with the CPU at 300% (hence the
+  automatic turbo).
 
-Set "Mad TV v2.1 (1991)(Rainbow Arts)", con file di dati in spagnolo e
-interfaccia in inglese (vedi domande aperte). MD5:
+## Disk version
 
-- disco 1 (MTV1): `77f660cbb2c6ab7d4979f09acda3ebf7`
-- disco 2 (MTV2): `a59073203f3d695bd261bba2b0057447`
+The "Mad TV v2.1 (1991)(Rainbow Arts)" set, with data files in Spanish and the
+interface in English (see open questions). MD5:
 
-Per WinUAE (confronti con l'originale): Kickstart 1.3 rev 34.5 A500,
-`kick34005.A500`, CRC32 `c4f0f55f`, con **512 KB Chip + 512 KB Slow RAM**:
-il gioco occupa circa 600 KB (circa 270 KB allocati dinamicamente, di cui
-200 KB in Chip RAM, più circa 310 KB di codice e dati), quindi con soli
-512 KB non parte. Misura: il rapporto finale dell'emulatore riporta la memoria
-in uso e il massimo (`MADTV_HEAP=1` elenca i blocchi più grandi).
+- disk 1 (MTV1): `77f660cbb2c6ab7d4979f09acda3ebf7`
+- disk 2 (MTV2): `a59073203f3d695bd261bba2b0057447`
 
-`add21` (primo comando della startup-sequence) è estetico: ritocca la
-viewport dello schermo del Workbench e lo ridisegna; non serve al gioco.
+For WinUAE (comparisons with the original): Kickstart 1.3 rev 34.5 A500,
+`kick34005.A500`, CRC32 `c4f0f55f`, with **512 KB Chip + 512 KB Slow RAM**:
+the game takes about 600 KB (about 270 KB allocated dynamically, 200 KB of it
+in Chip RAM, plus about 310 KB of code and data), so it does not start with
+512 KB only. Measurement: the emulator's final report shows the memory in use
+and the peak (`MADTV_HEAP=1` lists the largest blocks).
 
-## Cosa fa il gioco con il sistema (dal trace)
+Working WinUAE configuration: A500, KS 1.3 rev 34.5, 1 MB Chip + 512 KB Slow,
+disk 1 in DF0 and disk 2 in DF1. With Quickstart chosen before the ROM scan,
+WinUAE showed only a black screen. Schedule screen, silent menu, logo and the
+credits wipe match the port.
 
-Funzioni chiamate fino alla schermata di selezione:
+`add21` (first command of the startup-sequence) is cosmetic: it adjusts the
+Workbench screen viewport and redraws it; the game does not need it.
+
+## What the game does with the system (from the trace)
+
+Functions called up to the player selection screen:
 
 - exec: `AllocMem`, `FreeMem`, `Forbid`, `Permit`, `OldOpenLibrary`,
   `FindTask`, `SetSignal`
 - dos: `Open`, `Close`, `Read`, `Seek`, `Lock`, `UnLock`, `Examine`,
   `Input`, `Output`, `Write`, `IsInteractive`
-- intuition, graphics: **nessuna chiamata**. Il gioco programma l'hardware da sé.
+- intuition, graphics: **no calls**. The game programs the hardware itself.
 
-Hardware usato direttamente:
+Hardware used directly:
 
-- installa il proprio gestore di interrupt di livello 3 scrivendo nel vettore
-  `$6C` (indirizzo `$0401CC` nel gioco caricato); se l'interrupt non è COPER
-  salta al vecchio vettore;
-- la sua copper list (a `$04F338`) imposta 5 bitplane **interleaved**
-  (modulo 160), 32 colori, e termina con `MOVE $8010,INTREQ`: un interrupt
-  copper a ogni frame, che incrementa il contatore dei frame (`$0456E0`), legge
-  la tastiera (CIA-A SDR `$BFEC01`) e il mouse (JOY0DAT);
-- blitter in modalità area, mai (finora) in modalità linea;
-- POTGO/POTGOR a ogni frame (tasto destro del mouse).
-- **Puntatore del mouse**: lo disegna il gioco col blitter (non è uno sprite;
-  la copper list spegne anzi il DMA degli sprite con `MOVE $0020,DMACON`).
-  La sua posizione, in pixel dello schermo, sta in due word all'offset
-  `$40`/`$42` del segmento dati (segmento 2 della seglist; `$044650` nel nostro
-  caricamento). Una copia a `+6` sembra la posizione precedente. La finestra la
-  usa per tenere allineato il puntatore del gioco con quello del PC.
-- **Mouse**: 1 conteggio del mouse Amiga = 1 pixel lores (misurato).
-  Come lo gestisce il gioco (letto nel codice):
-  - l'interrupt di frame (`$0401CC`) legge JOY0DAT, calcola lo spostamento
-    del frame (`$045806`/`$045808`) e lo **somma** in due accumulatori,
-    offset `$2C2E`/`$2C30` del segmento dati (`$04723E`/`$047240`): i
-    movimenti non vanno mai persi;
-  - il ciclo principale (`$015530`) svuota gli accumulatori e sposta il
-    puntatore, tutto in una volta o a pezzi (lo smorzamento, funzione
-    `$0167DC`); quando è occupato (per esempio mentre disegna un'etichetta al
-    passaggio del mouse) salta qualche frame;
-  - il puntatore viene limitato tra quattro variabili che cambiano con la
-    schermata: offset `$2BD2`/`$2BD4` (minimi X/Y) e `$2BD6`/`$2BD8`
-    (massimi; 303/189 nella schermata principale).
-  La finestra (`input::pointer_step`) usa queste variabili: posizione
-  prevista = puntatore + accumulatori, bersaglio limitato ai limiti della
-  schermata. Una prima versione stimava i movimenti in sospeso e dopo 3 frame
-  di puntatore fermo li dava per persi: quando il gioco era occupato li
-  reinviava e il puntatore saltava (fino a 30 px oltre il bersaglio).
-  Strumenti di misura: `cargo run --release --example mouse_lab` e
-  `CLICKS=3 SPEED=3 cargo run --release --example mouse_sweep` (scorrimento
-  sopra le porte dell'edificio, con le etichette al passaggio del mouse).
-- **Velocità**: le transizioni (apertura di stanze, cambi di schermata) sono
-  limitate dalla CPU, perché dopo aver letto i file il gioco li decomprime.
-  Alcune animazioni invece sono temporizzate dalla CPU (non dal frame): con
-  la CPU al 300% fissa "vanno a razzo" (segnalato da Pam). Soluzione:
-  **turbo automatico** (`--cpu-speed auto`, default nella finestra): CPU al
-  100% di norma, al 400% dopo ogni Open/Read del dos, finché il gioco non
-  torna a chiamare la sua funzione che legge il contatore dei frame
-  (`$0434FC`, offset `$40364` del segmento 1: restituisce la word a
-  `$0456E0`, incrementata dall'interrupt). Misure dal click su "New game":
+- it installs its own level-3 interrupt handler by writing to vector `$6C`
+  (address `$0401CC` in the loaded game); if the interrupt is not COPER it
+  jumps to the old vector;
+- its copper list (at `$04F338`) sets up 5 **interleaved** bitplanes
+  (modulo 160), 32 colours, and ends with `MOVE $8010,INTREQ`: a copper
+  interrupt every frame, which increments the frame counter (`$0456E0`), reads
+  the keyboard (CIA-A SDR `$BFEC01`) and the mouse (JOY0DAT);
+- blitter in area mode, never (so far) in line mode;
+- POTGO/POTGOR every frame (right mouse button).
+- **Mouse pointer**: drawn by the game with the blitter (it is not a sprite;
+  the copper list actually turns sprite DMA off with `MOVE $0020,DMACON`).
+  Its position, in screen pixels, is in two words at offset `$40`/`$42` of
+  the data segment (segment 2 of the seglist; `$044650` in our load). A copy
+  at `+6` looks like the previous position. The window uses it to keep the
+  game pointer aligned with the PC one.
+- **Mouse**: 1 Amiga mouse count = 1 lores pixel (measured). How the game
+  handles it (read from the code):
+  - the frame interrupt (`$0401CC`) reads JOY0DAT, computes the movement of
+    the frame (`$045806`/`$045808`) and **adds** it to two accumulators,
+    offset `$2C2E`/`$2C30` of the data segment (`$04723E`/`$047240`):
+    movements are never lost;
+  - the main loop (`$015530`) empties the accumulators and moves the pointer,
+    all at once or in pieces (damping, function `$0167DC`); when it is busy
+    (for example while drawing a mouse-over label) it skips a few frames;
+  - the pointer is clamped between four variables that change with the
+    screen: offset `$2BD2`/`$2BD4` (X/Y minimum) and `$2BD6`/`$2BD8`
+    (maximum; 303/189 on the main screen).
+  The window (`input::pointer_step`) uses these variables: predicted
+  position = pointer + accumulators, target clamped to the screen's limits. A
+  first version estimated pending movements and, after 3 frames of still
+  pointer, assumed them lost: when the game was busy it resent them and the
+  pointer jumped (up to 30 px past the target).
+  Measurement tools: `cargo run --release --example mouse_lab` and
+  `CLICKS=3 SPEED=3 cargo run --release --example mouse_sweep` (sweep over
+  the building's doors, with the mouse-over labels).
+- **Speed**: transitions (opening rooms, screen changes) are CPU-bound,
+  because after reading the files the game decompresses them. Some animations
+  are instead timed by the CPU (not by the frame): with the CPU fixed at 300%
+  they "fly" (reported by Pam). Solution: **automatic turbo**
+  (`--cpu-speed auto`, window default): CPU at 100% normally, at 400% after
+  every dos Open/Read, until the game calls again its function that reads the
+  frame counter (`$0434FC`, offset `$40364` of segment 1: returns the word at
+  `$0456E0`, incremented by the interrupt). Measurements from the click on
+  "New game":
 
-  | | primo cambiamento | capo | animazione dell'edificio |
+  | | first change | boss | building animation |
   |---|---|---|---|
-  | 100% | 4,3 s | 12,2 s | 100 frame |
-  | 300% fissa | 1,5 s | 4 s | accelerata |
-  | auto | 1,4 s | 6,4 s | 100 frame (come l'originale) |
+  | 100% | 4.3 s | 12.2 s | 100 frames |
+  | 300% fixed | 1.5 s | 4 s | sped up |
+  | auto | 1.4 s | 6.4 s | 100 frames (as the original) |
 
-  L'orologio del gioco è scandito dagli interrupt di frame: avanza di 10
-  minuti ogni 1.000 frame a qualunque velocità della CPU. In headless la
-  velocità resta 100% fissa, per avere script riproducibili.
+  The game clock is driven by the frame interrupts: it advances 10 minutes
+  every 1,000 frames at any CPU speed. In headless mode the speed stays fixed
+  at 100%, to keep scripts reproducible.
 
-## Bug trovati e risolti in fase 1 (utili per il futuro)
+## Bugs found and fixed in phase 1 (useful for the future)
 
-1. **Coda di prefetch**: il core `m68k` emula il prefetch del 68000; dopo ogni
-   cambio di PC fatto dall'esterno (trap, Supervisor...) va chiamato
-   `cpu.invalidate_prefetch()`, altrimenti la CPU esegue parole vecchie.
-2. **Livello di interrupt**: il core azzera `int_level` dopo aver servito un
-   interrupt; va reimpostato a ogni istruzione (`set_irq`), come la linea IPL.
-3. **Stato iniziale dell'hardware**: AmigaOS lascia DMACON = `$03F0` e
-   INTENA = `$602C`; il gioco non li imposta da sé e senza questi valori non
-   parte né il copper né l'interrupt.
-4. **Copper in tempo reale**: serve eseguirlo riga per riga durante
-   l'emulazione (non solo per disegnare) perché genera l'interrupt che fa
-   avanzare il gioco.
+1. **Prefetch queue**: the `m68k` core emulates the 68000 prefetch; after
+   every PC change made from outside (trap, Supervisor...) you must call
+   `cpu.invalidate_prefetch()`, otherwise the CPU executes stale words.
+2. **Interrupt level**: the core clears `int_level` after servicing an
+   interrupt; it must be set again on every instruction (`set_irq`), like the
+   IPL line.
+3. **Initial hardware state**: AmigaOS leaves DMACON = `$03F0` and
+   INTENA = `$602C`; the game does not set them itself and without these
+   values neither the copper nor the interrupt start.
+4. **Real-time copper**: it must run line by line during emulation (not just
+   for drawing) because it generates the interrupt that drives the game.
 
-## Limiti noti
+## Known limitations
 
-- Renderer: niente priorità sprite/playfield (BPLCON2), niente scroll fine
-  (BPLCON1), niente dual playfield né HAM; i cambi di registro a metà riga
-  valgono per tutta la riga; le righe hires vengono dimezzate.
-- Blitter: modalità linea non emulata (viene contata nel rapporto; finora mai usata).
-- Tastiera: nessun tastierino numerico; i tasti senza equivalente Amiga sono ignorati.
-- Audio: niente modulazione tra canali (ADKCON) e temporizzazione degli slot
-  DMA approssimata; non emulati i timer delle CIA (il gioco finora non li usa).
-- La startup-sequence originale lancia anche `rai` (intro Rainbow Arts) e
-  `v u3.lbm` (visualizzatore IFF): per ora eseguiamo solo `mtv s`.
-- Delay() salta i frame in un colpo solo.
-- La finestra non è ridimensionabile (scala fissa scelta all'avvio).
-- Altezza e margini: gli screenshot mostrano 200 righe (320×200), le sole che
-  il gioco usa in tutte le schermate provate (DIWSTRT/DIWSTOP $2C-$F4). La
-  finestra, su richiesta di Pam, ha un margine di 20 pixel (`--margin`): nero
-  in alto e ai lati, mentre in basso mostra le righe 200-219 del display, così
-  l'intro (220 righe) è completa. Finestra di 360×240 pixel del gioco
-  (1080×720 alla scala 3). `--full-height` mostra le 256 righe PAL.
-- Intro disattivata di default (scelta di Pam): si attiva con `--intro`.
-- Avvio con doppio click (segnalato da Pam: falliva in silenzio): la cartella
-  corrente è `target\release`, quindi `adf` non veniva trovata e la console si
-  chiudeva subito. Ora `adf` si cerca anche accanto all'eseguibile e due livelli
-  sopra; con una console tutta nostra (`GetConsoleProcessList` = 1) gli errori,
-  anche interni, aspettano Invio. Codice specifico di Windows non compilabile
-  nella sandbox: da verificare su Windows.
+- Renderer: no sprite/playfield priority (BPLCON2), no fine scrolling
+  (BPLCON1), no dual playfield or HAM; register changes in the middle of a
+  line apply to the whole line; hires lines are halved.
+- Blitter: line mode not emulated (counted in the report; never used so far).
+- Keyboard: no numeric keypad; keys without an Amiga equivalent are ignored.
+- Audio: no inter-channel modulation (ADKCON) and approximate DMA slot
+  timing; CIA timers not emulated (the game does not use them so far).
+- Delay() skips the frames in one go.
+- The window cannot be resized (fixed scale chosen at start-up).
+- Height and margins: screenshots show 200 lines (320×200), the only ones the
+  game uses on all the screens tested (DIWSTRT/DIWSTOP $2C-$F4). At Pam's
+  request the window has a 20-pixel margin (`--margin`): black at the top and
+  sides, while at the bottom it shows display lines 200-219, so the intro
+  (220 lines) is complete. Window of 360×240 game pixels (1080×720 at scale
+  3). `--full-height` shows the 256 PAL lines.
+- Intro disabled by default (Pam's choice): enabled with `--intro`.
+- Double-click start (reported by Pam: it failed silently): the current
+  folder is `target\release`, so `adf` was not found and the console closed
+  at once. Now `adf` is also searched next to the executable and two levels
+  up; with a console of our own (`GetConsoleProcessList` = 1) errors, even
+  internal ones, wait for Enter. Windows-specific code cannot be compiled in
+  the sandbox: to be checked on Windows (confirmed working by Pam).
 
-## Audio (fase 3)
+## Audio (phase 3)
 
-- **Musica**: TFMX. Il replayer è `098.HES` (disco 1), le canzoni sono coppie
-  canzone+campioni sul disco 2 (094/095, 086/087...). All'avvio il gioco
-  prova `Lock("078.HES")` nella directory corrente e, se non lo trova, usa
-  `MTV2:078.HES`: la musica viene caricata regolarmente (il dubbio della fase 1
-  era infondato).
-- Il replayer riscrive i periodi dei canali 0-2 a ogni frame (50 Hz, dal suo
-  interrupt); a fine nota mette il canale in loop su una parola di zeri.
-- Il gioco non abilita gli interrupt audio (INTENA = `$603C`), quindi gli
-  interrupt AUD0-3 di Paula vengono generati ma non serviti; il livello 4 resta
-  comunque gestito.
-- Il silenzio sulla schermata di selezione dei giocatori è fedele: confermato
-  in WinUAE (anche l'originale non ha musica nel menu iniziale).
-- Strumenti: `--headless --wav FILE` registra l'audio; il rapporto finale mostra
-  lo stato dei canali; `cargo run --release --example audio_check` verifica il
-  dispositivo audio.
+- **Music**: TFMX. The replayer is `098.HES` (disk 1), the songs are
+  song+samples pairs on disk 2 (094/095, 086/087...). At start-up the game
+  tries `Lock("078.HES")` in the current directory and, if not found, uses
+  `MTV2:078.HES`: music loads normally (the phase-1 doubt was unfounded).
+- The replayer rewrites the periods of channels 0-2 every frame (50 Hz, from
+  its interrupt); at the end of a note it loops the channel on a word of
+  zeros.
+- The game does not enable audio interrupts (INTENA = `$603C`), so Paula's
+  AUD0-3 interrupts are generated but not serviced; level 4 is handled
+  anyway.
+- The silence on the player selection screen is faithful: confirmed in WinUAE
+  (the original has no music in the initial menu either).
+- Tools: `--headless --wav FILE` records the audio; the final report shows the
+  channel state; `cargo run --release --example audio_check` checks the audio
+  device.
 
-## Intro (logo Rainbow Arts e credits)
+## Intro (Rainbow Arts logo and credits)
 
-- **`rai`** (logo Rainbow Arts, con la miccia che brucia lungo la cornice e il
-  rumore crepitante "di vetri" segnalato da Pam in WinUAE) gira nell'emulatore
-  in una macchina a sé, prima del gioco. Usa due chiamate a exec e poi prende
-  il controllo con `TRAP #0` dopo aver puntato il vettore della trap sul
-  proprio codice: per questo il ciclo principale ora fa prendere alla CPU le
-  vere eccezioni TRAP/F-line/ILLEGAL (salto al vettore) invece di fermarsi.
-  Lavora a indirizzi fissi oltre `$030000` (copper list, 4 bitplane, finestra
-  video di 220 righe: le ultime 20 non entrano nella finestra a 200 righe).
-  Dura 658 frame (13 s) e termina da sé. Ai bordi compaiono righe rosse, gialle
-  e blu che sfumano con il logo: sono pixel disegnati dall'intro stessa
-  (memoria libera e azzerata nel nostro emulatore), probabilmente un effetto
-  voluto; da confermare in WinUAE.
-- **Credits**: `v u3.lbm`. Il visualizzatore `v` userebbe intuition
-  (OpenScreen) e graphics; invece di emularlo, decodifichiamo noi l'immagine
-  IFF ILBM (`iff.rs`: 320×256, 32 colori, ByteRun1) e riproduciamo il
-  comportamento dell'originale osservato da Pam in WinUAE: comparsa con effetto
-  a tendina dall'alto verso il basso, nessun audio, attesa di un click per
-  proseguire. La durata della tendina (`CREDITS_WIPE_FRAMES` in `main.rs`, ora
-  1 secondo) è una stima da confrontare con l'originale.
-- **Crediti ufficiali** (dall'immagine): Project Manager Ralph Stock,
+- **`rai`** (Rainbow Arts logo, with the fuse burning along the frame and the
+  crackling "broken glass" noise Pam noticed in WinUAE) runs in the emulator
+  in a machine of its own, before the game. It makes two exec calls and then
+  takes control with `TRAP #0` after pointing the trap vector at its own
+  code: this is why the main loop now lets the CPU take real TRAP/F-line/
+  ILLEGAL exceptions (jump to the vector) instead of stopping. It works at
+  fixed addresses above `$030000` (copper list, 4 bitplanes, a 220-line
+  display window: the last 20 lines do not fit in a 200-line window). It
+  lasts 658 frames (13 s) and ends by itself. Red, yellow and blue lines
+  appear at the edges and fade with the logo: they are pixels drawn by the
+  intro itself (free memory, zeroed in our emulator), probably an intended
+  effect; to be confirmed in WinUAE.
+- **Credits**: `v u3.lbm`. The `v` viewer would use intuition (OpenScreen) and
+  graphics; instead of emulating it, we decode the IFF ILBM image ourselves
+  (`iff.rs`: 320×256, 32 colours, ByteRun1) and reproduce the behaviour of the
+  original observed by Pam in WinUAE: a top-to-bottom wipe, no audio, waiting
+  for a click to continue. The wipe duration (`CREDITS_WIPE_FRAMES` in
+  `main.rs`, currently 1 second) is an estimate to compare with the original.
+- **Official credits** (from the image): Project Manager Ralph Stock,
   Programming PC Stefan Hoffmann, Programming Christian Krämer, Graphics
-  Thomas Andrae, Sound Rudi Stember. La firma nascosta nell'eseguibile Amiga
-  ("I hate C, but worse, AmigaOS and BCPL - Thomas B.") resta senza un
-  autore certo.
-- Strumenti: `--program NOME` esegue un altro programma del disco 1 (con
-  `MADTV_ARGS` per gli argomenti); `cargo run --release --example show_iff
-  -- u3.lbm out.png` decodifica un'immagine IFF.
+  Thomas Andrae, Sound Rudi Stember. The hidden signature in the Amiga
+  executable ("I hate C, but worse, AmigaOS and BCPL - Thomas B.") has no
+  certain author.
+- Tools: `--program NAME` runs another program from disk 1 (with `MADTV_ARGS`
+  for the arguments); `cargo run --release --example show_iff -- u3.lbm
+  out.png` decodes an IFF image.
 
-## Strada verso le evidenziazioni (dal 2 novembre 2026)
+## Road to the highlights (from 2 November 2026)
 
-Obiettivo di Pam: rendere più intuitive le interazioni di trascinamento
-(pannelli presi da liste e rilasciati nel palinsesto, nella valigetta della
-Movie Agency, nella Library, sulla bacheca dell'ufficio, nelle news) con
-evidenziazioni ed effetti. Il meccanismo del gioco funziona bene: manca il
-riscontro visivo. Poi: riscrittura graduale delle funzioni in Rust, risoluzione
-più alta e grafica sostitutiva.
+Pam's goal: make drag-and-drop interactions more intuitive (panels taken from
+lists and dropped into the schedule, the Movie Agency briefcase, the Library,
+the office bulletin board, the news) with highlights and effects. The game's
+mechanism works well: what is missing is visual feedback. Then: gradual
+rewrite of the game functions in Rust, higher resolution and replacement
+graphics.
 
-Pezzi già pronti:
-
-1. **Registrazione delle partite** (`--record FILE`): mouse (movimenti
-   effettivamente inviati al gioco), tasti, orologio di sistema e modalità
-   della CPU, frame per frame. Il file è uno script: `madtv --headless --script
-   @FILE --frames N` riproduce la partita identica. Verificato: due
-   riproduzioni danno la stessa memoria byte per byte. Nel tratto provato il
-   gioco non legge mai l'orologio (DateStamp), ma lo registriamo comunque.
-2. **Strato di sovrapposizione** (`overlay.rs`): forme in coordinate del gioco
-   disegnate dopo l'ingrandimento, con trasparenza, nitide alla risoluzione
-   della finestra. `enhance.rs` produrrà le evidenziazioni a ogni frame
-   leggendo lo stato del gioco. `--debug-overlay` mostra il mirino sulla
-   punta del puntatore (allineamento verificato al pixel, vedi
-   `docs/img/overlay-mirino.png`) e i limiti del puntatore;
-   `cargo run --release --example overlay_demo -- out.png` compone offline un
-   frame con l'overlay.
-
-3. **Stato del trascinamento** (dalle registrazioni di Pam del 2 novembre,
-   in `scripts/registrazioni/`: palinsesto, studio, Movie Agency, agenzia
-   sceneggiature, news). Tutte le stanze usano la stessa routine di aggancio
-   `$030D5A(larghezza, altezza, x_presa, y_presa, testo, tipo)` e di sgancio
-   `$031016`. Variabili nel segmento dati (base `$044610`):
-   `$0448EC` immagine in mano (0 = niente), `$0448F0/F2` dimensioni,
-   `$0448F4/F6` distanza puntatore − angolo, `$044656/58` posizione disegnata
-   (−1 prima del primo disegno), `$0471C8` modalità del puntatore (2 =
-   trascinamento), `$04E962` zona sotto il punto caldo (0x0F = lista del
-   palinsesto), `$04AA60` tabella del palinsesto (giocatore × 0x5A, una word
-   per ora: codice del programma). Il pannello del palinsesto è 144×16, la
-   cassetta della Movie Agency 16×29, le notizie 144×34.
-   **Il gioco decide dove si rilascia con l'angolo in alto a sinistra
-   dell'oggetto**, non con la punta del puntatore (`$0179BC`/`$0179FC`):
-   ecco perché sembra servire precisione. Nel palinsesto la riga è
-   `(y − 4) / 16` (`$006724`), colonna programmi x 56..215, pubblicità
-   216..279; il disegno della casella aggiornata arriva circa 50 frame dopo il
-   click, ma la tabella cambia subito.
-4. **Click di prova** (`enhance::probe_drop`): invece di riscrivere le regole
-   di ogni stanza (ora corrente, blocchi occupati, valigetta...), si clona la
-   macchina (`Machine::clone`, ~2 ms: RAM, chip, sistema, CPU via serde), si
-   preme il tasto sinistro sulla copia e si guarda se entro 6 frame l'oggetto
-   viene sganciato. Copia con file system in sola lettura. Verificato: una
-   copia evolve identica all'originale (0 byte diversi dopo 1000 frame) e il
-   click di prova dà "accettato" subito prima di tutti i rilasci reali delle
-   registrazioni. Costo medio 3–8 ms, al massimo ogni 3 frame e solo quando il
-   punto caldo si sposta.
-5. **Prime evidenziazioni** (attive di default, `--originale` o F9 le
-   spengono): contorno dell'oggetto trascinato e quadratino sul punto caldo,
-   verdi se lì il rilascio sarebbe accettato, rossi se no; nel palinsesto
-   anche la casella che riceverà il programma. Vedi
-   `docs/img/evidenziazione-palinsesto.png` e
+1. **Game recording** (`--record FILE`): mouse (the movements actually sent
+   to the game), keys, system clock and CPU mode, frame by frame. The file is
+   a script: `madtv --headless --script @FILE --frames N` replays the session
+   identically. Verified: two replays give the same memory byte for byte. In
+   the stretch tested the game never reads the clock (DateStamp), but we
+   record it anyway.
+2. **Overlay layer** (`overlay.rs`): shapes in game coordinates drawn after
+   magnification, with transparency, sharp at window resolution.
+   `enhance.rs` produces the highlights every frame by reading the game
+   state. `--debug-overlay` shows a crosshair on the pointer tip (alignment
+   verified to the pixel, see `docs/img/overlay-mirino.png`) and the pointer
+   limits; `cargo run --release --example overlay_demo -- out.png` composes a
+   frame with the overlay offline.
+3. **Drag state** (from Pam's recordings of 2 November, in
+   `scripts/registrazioni/`: schedule, studio, Movie Agency, screenplay
+   agency, news). All rooms use the same pick-up routine
+   `$030D5A(width, height, grab_x, grab_y, text, type)` and release routine
+   `$031016`. Variables in the data segment (base `$044610`):
+   `$0448EC` image being held (0 = nothing), `$0448F0/F2` size,
+   `$0448F4/F6` distance pointer − corner, `$044656/58` drawn position
+   (−1 before the first draw), `$0471C8` pointer mode (2 = dragging),
+   `$04E962` zone under the hot spot (0x0F = schedule list), `$04AA60`
+   schedule table (player × 0x5A, one word per hour: programme code). The
+   schedule panel is 144×16, the Movie Agency videotape 16×29, news items
+   144×34.
+   **The game decides where you drop with the top-left corner of the
+   object**, not with the pointer tip (`$0179BC`/`$0179FC`): that is why it
+   seems to need precision. In the schedule the row is `(y − 4) / 16`
+   (`$006724`), programme column x 56..215, advertising 216..279; the drawing
+   of the updated slot arrives about 50 frames after the click, but the table
+   changes at once.
+4. **Trial click** (`enhance::probe_drop`): instead of rewriting each room's
+   rules (current hour, occupied blocks, briefcase...), the machine is cloned
+   (`Machine::clone`, ~2 ms: RAM, chips, system, CPU via serde), the left
+   button is pressed on the copy, and we check whether the object is released
+   within 6 frames. The copy has a read-only file system. Verified: a copy
+   evolves identically to the original (0 bytes different after 1,000 frames)
+   and the trial click answers "accepted" right before every real drop in the
+   recordings. Average cost 3–8 ms, at most every 3 frames and only when the
+   hot spot moves.
+5. **First highlights** (only in development mode, `--dev`; F9 toggles them.
+   By default the window shows only the game: Pam's request): outline of the
+   dragged object and a small square on the hot spot, green if a drop there
+   would be accepted, red if not; in the schedule also the slot that will
+   receive the programme. See `docs/img/evidenziazione-palinsesto.png` and
    `docs/img/evidenziazione-movie-agency.png`.
 
-   Aggiunta dopo il primo riscontro di Pam: **punto d'arrivo fuori dal
-   palinsesto**. Nelle news (e dove il gioco ridisegna l'oggetto uguale) la
-   casella d'arrivo si ricava con un click di prova lungo: sulla copia si
-   rilascia e si aspetta fino a 70 frame (il gioco ridisegna dopo ~40) cercando
-   i pixel del pannello nello schermo (`find_panel`, ≥ 95% dei campioni). Costa
-   ~85 ms, quindi gira in un thread (`LandingWorker`) e parte solo quando il
-   punto caldo resta fermo 5 frame su un punto accettato; l'area resta
-   evidenziata finché il punto caldo ci sta dentro. Riempimento e contorno
-   dell'area d'arrivo saltano il rettangolo dell'oggetto trascinato (forma
-   `Mask` dello strato), che così resta sopra l'evidenziazione. Lo strato è uno solo, sopra l'immagine Amiga già composta:
-   il gioco disegna il pannello nei suoi bitplane, non esistono livelli
-   separati.
+   Added after Pam's first feedback: **landing spot outside the schedule**. In
+   the news (and wherever the game redraws the object unchanged) the landing
+   slot is found with a long trial click: on the copy the object is released
+   and we wait up to 70 frames (the game redraws after ~40) looking for the
+   panel's pixels on screen (`find_panel`, ≥ 95% of samples). It costs
+   ~85 ms, so it runs in a thread (`LandingWorker`) and starts only when the
+   hot spot stays still for 5 frames on an accepted point; the area stays
+   highlighted as long as the hot spot is inside it. Fill and outline of the
+   landing area skip the rectangle of the dragged object (`Mask` shape of the
+   layer), which therefore stays on top of the highlight. There is a single
+   layer, on top of the already composed Amiga picture: the game draws the
+   panel into its own bitplanes, there are no separate layers.
 
-Strumenti di analisi (in `examples/`): `drag_lab` (cerca variabili correlate
-al puntatore e bandiere durante il trascinamento), `probe` (valori nel tempo,
-dump, `watch=` per le istruzioni che leggono/scrivono un indirizzo,
-`break=` per chiamate con lo stack), `drop_lab` (click di prova con
-schermate e differenze di RAM), `clone_check`, `highlight_demo` (frame alla
-risoluzione della finestra con le evidenziazioni). Il bus ha un punto di
-osservazione (`Bus::watch`) e la macchina punti di sonda (`probe_pcs`).
+Analysis tools (in `examples/`): `drag_lab` (finds variables correlated with
+the pointer and flags during a drag), `probe` (values over time, dumps,
+`watch=` for the instructions reading/writing an address, `break=` for calls
+with the stack), `drop_lab` (trial click with screenshots and RAM
+differences), `clone_check`, `landing_check`, `highlight_demo` (frames at
+window resolution with the highlights). The bus has a watchpoint
+(`Bus::watch`) and the machine has probe points (`probe_pcs`).
 
-Prossimi passi:
+Open issue: with the highlights on, Pam saw the game's own graphics flicker
+under an animation (the book). Cause not yet verified; the most likely
+hypothesis is irregular frame pacing, because the short trial click runs in
+the window loop (3–9 ms, sometimes more). Possible remedy: move it to the
+thread as well. Work paused on 2 November at Pam's request.
 
-6. Riscontro di Pam sulle evidenziazioni; poi effetti (ombra del pannello,
-   area di destinazione anche fuori dal palinsesto ricavata dalla differenza
-   tra copia con e senza click, suono di conferma).
-7. Agganci alle funzioni del gioco (tabella indirizzo → funzione Rust) e
-   riscrittura graduale, a partire da quelle trovate qui.
+Next steps:
 
+6. Pam's feedback on the highlights; then effects (panel shadow, target area
+   outside the schedule as well, derived from the difference between the copy
+   with and without the click, confirmation sound).
+7. Hooks into the game functions (address → Rust function table) and gradual
+   rewrite, starting from the ones found here.
 
+## Next steps
 
-Configurazione che funziona: A500, KS 1.3 rev 34.5, 1 MB Chip + 512 KB Slow,
-disco 1 in DF0 e disco 2 in DF1. Con Quickstart scelto prima della scansione
-delle ROM, WinUAE mostrava solo uno schermo nero. L'originale mostra, prima del
-gioco, il logo Rainbow Arts (`rai`) e una schermata con i credits (`v u3.lbm`),
-che il porting per ora salta. Schermata del palinsesto e menu muto coincidono.
+0. Drag highlights: see "Road to the highlights".
+1. ~~Listening check~~: done, Pam confirms the music is faithful to the Amiga.
+2. Check in WinUAE: coloured lines at the edges during the Rainbow Arts logo;
+   speed of the credits wipe.
+3. Clean-up: known renderer limitations (sprite priority, fine scrolling) if
+   some screen needs them.
+4. Next phase, when wanted: rewrite of the game functions in Rust, one at a
+   time, checking them against the original.
 
-## Prossimi passi
+## Decisions taken
 
-0. Evidenziazioni del trascinamento: vedi "Strada verso le evidenziazioni".
-1. Conferma all'ascolto (Pam, su Windows).
-2. Verificare in WinUAE: righe colorate ai bordi durante il logo Rainbow
-   Arts; velocità della tendina dei credits.
-3. Pulizia: limiti noti del renderer (priorità sprite, scroll fine) se
-   qualche schermata ne ha bisogno.
-4. Fase successiva, quando si vorrà: riscrittura in Rust delle funzioni del
-   gioco, una alla volta, verificandole contro l'originale.
+- Approach: high-level emulation (HLE) of the operating system + minimal
+  chipset; rewrite of the game functions in Rust only later, one at a time,
+  checking them against the original.
+- CPU core: `m68k` 0.15 (MIT). Licence of our code: **GPL-3.0-or-later**
+  (chosen also to be able to reuse, if needed, code from Copperline, which is
+  GPL).
+- The repository contains no game files: the ADFs go into `adf/` (ignored by
+  git).
+- Documentation: English by default, Italian versions alongside
+  (`README.it.md`, `NOTES.it.md`, `docs/it/`). Code comments and CLI help
+  remain in Italian for now.
 
-## Decisioni prese
+## Open questions for Pam
 
-- Approccio: emulazione ad alto livello (HLE) del sistema operativo + chipset
-  minimo; riscrittura in Rust delle funzioni del gioco solo in seguito,
-  una alla volta, verificandole contro l'originale.
-- Core CPU: `m68k` 0.15 (MIT). Licenza del nostro codice: **GPL-3.0-or-later**
-  (scelta anche per poter riusare, se servirà, codice di Copperline, che è GPL).
-- Il repository non contiene file del gioco: gli ADF vanno messi in `adf/`
-  (ignorata da git).
-
-## Domande aperte per Pam
-
-- Lingua: questi dischi sono un misto. Interfaccia e dialoghi visti finora
-  sono in inglese ("Select a player", "Welcome to MadTV!"), ma molti file di
-  dati (descrizioni dei film, notizie) sono in spagnolo. Da verificare in
-  WinUAE se anche l'originale si comporta così; per una versione coerente
-  servirebbero gli ADF di un'altra edizione.
+- Language: these disks are a mix. Interface and dialogues seen so far are in
+  English ("Select a player", "Welcome to MadTV!"), but many data files (film
+  descriptions, news) are in Spanish. To be checked in WinUAE whether the
+  original behaves the same; a consistent version would need the ADFs of
+  another edition.

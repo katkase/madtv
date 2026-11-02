@@ -1,5 +1,7 @@
 # Architettura
 
+*[English](../architecture.md) · Italiano*
+
 ## Idea di fondo
 
 Il gioco Amiga è un eseguibile 68000 di circa 270 KB (dopo la decompressione),
@@ -41,7 +43,7 @@ restituisce un `StepResult`. Due casi ci interessano:
 - `AlineTrap { opcode }`: il programma ha eseguito un opcode `$Axxx`. Non
   esiste sul 68000: lo usiamo come "chiamata al sistema operativo emulato".
 
-Attenzione (vedi NOTES.md): ogni volta che cambiamo il PC dall'esterno va
+Attenzione (vedi NOTES.it.md): ogni volta che cambiamo il PC dall'esterno va
 chiamato `invalidate_prefetch()`, e il livello di interrupt va reimpostato a
 ogni istruzione.
 
@@ -222,9 +224,11 @@ mouse effettivamente inviati al gioco, i tasti, l'orologio di sistema
 
 `overlay.rs` disegna forme (contorni, riempimenti trasparenti, linee) in
 coordinate del gioco, ma alla risoluzione della finestra, dopo
-l'ingrandimento. `enhance.rs` calcola a ogni frame le forme da mostrare
-leggendo lo stato del gioco dalla memoria emulata; la finestra le compone sopra
-l'immagine.
+l'ingrandimento, con maschere (`Mask`/`Unmask`) per lasciare scoperti oggetti
+del gioco come il pannello trascinato. `enhance.rs` calcola a ogni frame le
+forme da mostrare leggendo lo stato del gioco dalla memoria emulata; la
+finestra le compone sopra l'immagine. Lo strato esiste solo in modalità
+sviluppo (`--dev`): di default la finestra mostra solo il gioco.
 
 ## Copie della macchina e click di prova
 
@@ -239,7 +243,9 @@ Le evidenziazioni la usano per chiedere al gioco "se cliccassi adesso, cosa
 succederebbe?" (`enhance::probe_drop`): sulla copia si preme il tasto
 sinistro, si eseguono fino a 6 frame e si guarda se l'oggetto trascinato è
 stato sganciato. Così le regole di ogni stanza restano quelle del gioco
-originale, senza riscriverle.
+originale, senza riscriverle. Una variante lunga (`enhance::probe_landing`, ~85 ms, in un
+thread a parte) fa proseguire la copia finché il gioco ridisegna l'oggetto
+rilasciato, per scoprire dove arriva.
 
 Per l'analisi, il bus ha un punto di osservazione (`Bus::watch`, intervallo di
 RAM: ogni accesso della CPU finisce in `Machine::watch_log` con il PC

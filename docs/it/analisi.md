@@ -1,5 +1,7 @@
 # Analisi degli eseguibili originali
 
+*[English](../analysis.md) · Italiano*
+
 Risultati dell'analisi fatta prima di iniziare il porting, su due versioni:
 DOS (eseguibili del 10/2/1994) e Amiga ("Mad TV v2.1 (1991)", versione spagnola).
 
@@ -55,7 +57,7 @@ tabella di caratteri `LQXWMNbOFJERD;<=>?@ABCG`.
 
 ### Comportamento a runtime (dall'emulazione, fase 1)
 
-Vedi NOTES.md: il gioco usa pochissimo il sistema operativo (solo exec e dos per
+Vedi NOTES.it.md: il gioco usa pochissimo il sistema operativo (solo exec e dos per
 memoria e file), installa il proprio gestore di interrupt su `$6C` e si
 sincronizza con un interrupt copper generato dalla propria copper list.
 

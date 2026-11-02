@@ -280,7 +280,7 @@ const UNKNOWN: u32 = 0xFFF0C838;
 pub struct Enhancer {
     /// Disegna le informazioni diagnostiche.
     pub debug: bool,
-    /// Evidenziazioni attive (disattivate da `--originale` o con F9).
+    /// Evidenziazioni attive (con `--dev`; F9 le alterna).
     pub highlights: bool,
     /// Ultimo click di prova: (immagine, punto caldo, esito, frame).
     probe: Option<(u32, (i32, i32), bool, u64)>,

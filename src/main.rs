@@ -15,7 +15,7 @@ Mad TV - porting Rust della versione Amiga
 
 USO: madtv [opzioni]
 
-Di default apre la finestra di gioco (F9 = evidenziazioni sì/no, F10 = turbo automatico sì/no,
+Di default apre la finestra di gioco (F9 = evidenziazioni sì/no con --dev, F10 = turbo automatico sì/no,
 F11 tenuto premuto = avanti veloce, F12 = screenshot).
 
   --adf-dir DIR      cartella con le immagini ADF originali (default: adf, cercata
@@ -51,8 +51,9 @@ F11 tenuto premuto = avanti veloce, F12 = screenshot).
                        cpu auto|P   velocità della CPU
                      Le registrazioni fatte con --record sono script validi.
   --wav FILE         (headless) registra l'audio del gioco in un file WAV
-  --originale        nessuna evidenziazione: il gioco esattamente com'era
-                     (nella finestra si alternano anche con F9)
+  --dev              modalità sviluppo: strato di sovrapposizione con le
+                     evidenziazioni del trascinamento (F9 le alterna). Senza
+                     --dev la finestra mostra solo il gioco emulato.
   --debug-overlay    mostra il mirino sulla punta del puntatore e l'area del
                      puntatore (verifica dello strato di sovrapposizione)
   --record FILE      registra la partita nella finestra (mouse, tasti, orologio):
@@ -91,7 +92,7 @@ struct Opts {
     program: Option<String>,
     record: Option<PathBuf>,
     debug_overlay: bool,
-    originale: bool,
+    dev: bool,
 }
 
 fn parse_args() -> Result<Opts, String> {
@@ -121,7 +122,7 @@ fn parse_args() -> Result<Opts, String> {
         program: None,
         record: None,
         debug_overlay: false,
-        originale: false,
+        dev: false,
     };
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
@@ -166,7 +167,7 @@ fn parse_args() -> Result<Opts, String> {
             "--program" => o.program = Some(val()?),
             "--record" => o.record = Some(val()?.into()),
             "--debug-overlay" => o.debug_overlay = true,
-            "--originale" => o.originale = true,
+            "--dev" => o.dev = true,
             "--help" | "-h" => {
                 print!("{HELP}");
                 std::process::exit(0);
@@ -399,8 +400,9 @@ fn main() {
                 match Frontend::new(&wo) {
                     None => StopReason::FrameLimit,
                     Some(mut fe) => {
+                        fe.dev = o.dev || o.debug_overlay;
                         fe.enhancer.debug = o.debug_overlay;
-                        fe.enhancer.highlights = !o.originale;
+                        fe.enhancer.highlights = o.dev;
                         if let Some(r) = &o.record {
                             match fe.start_recording(r) {
                                 Ok(()) => println!("registrazione: {}", r.display()),
