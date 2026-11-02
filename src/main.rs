@@ -40,7 +40,7 @@ F11 tenuto premuto = avanti veloce, F12 = screenshot).
   --shot-every N     (headless) uno screenshot PNG ogni N frame (0 = solo alla fine)
   --shot-dir DIR     cartella degli screenshot (default: shots, accanto ad adf)
   --script TESTO     azioni automatiche: \"FRAME:azione; FRAME:azione...\"
-                     (oppure @file per leggerle da un file). Azioni:
+                     (oppure il nome di un file, anche come @file). Azioni:
                        move DX DY   sposta il mouse (conteggi Amiga)
                        goto X Y     porta il puntatore del gioco in (X, Y)
                        click | down | up | rdown | rup   tasti del mouse
@@ -164,8 +164,13 @@ fn parse_args() -> Result<Opts, String> {
             }
             "--script" => {
                 let v = val()?;
+                // "@file", oppure direttamente il nome di un file esistente
+                // (in PowerShell "@" va messo tra virgolette), oppure le azioni.
                 let src = match v.strip_prefix('@') {
                     Some(f) => std::fs::read_to_string(f).map_err(|e| format!("{f}: {e}"))?,
+                    None if std::path::Path::new(&v).is_file() => {
+                        std::fs::read_to_string(&v).map_err(|e| format!("{v}: {e}"))?
+                    }
                     None => v,
                 };
                 o.script = input::expand(input::parse_script(&src)?);

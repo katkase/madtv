@@ -105,8 +105,8 @@ Opzioni utili (`madtv --help` per l'elenco completo):
 | `--headless --wav audio.wav` | registra in un file l'audio prodotto dal gioco |
 | `--cpu-speed P` | velocità della CPU: `auto` (default nella finestra) o una percentuale fissa di un A500, es. `300` |
 | `--headless --frames N` | nessuna finestra: esegue N frame (50 = 1 secondo) e salva `shots\final.png` |
-| `--script "1290:goto 55 101; 1320:click; 2000:shot capo"` | azioni automatiche a frame stabiliti (anche da file: `--script @scripts\nuova-partita.txt`) |
-| `--record partita.txt` | registra la partita (mouse, tasti): il file la riproduce identica con `--headless --script @partita.txt` |
+| `--script "1290:goto 55 101; 1320:click; 2000:shot capo"` | azioni automatiche a frame stabiliti (anche da file: `--script scripts\nuova-partita.txt`) |
+| `--record partita.txt` | registra la partita (mouse, tasti): il file la riproduce identica con `--headless --script partita.txt` |
 | `--originale` | esegue solo il codice originale del gioco, senza le funzioni riscritte in Rust (più lento in alcuni punti) |
 | `--gpu` | disegna con la GPU (wgpu) invece che in software; sperimentale, se la GPU non parte torna al software |
 | `--dev` | modalità sviluppo: strato di sovrapposizione con le evidenziazioni del trascinamento |

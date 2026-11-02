@@ -317,7 +317,7 @@ impl Frontend {
             if let Some(w) = self.record.as_mut() {
                 use std::io::Write;
                 let _ = writeln!(w, "# Registrazione di Mad TV: riproducila con");
-                let _ = writeln!(w, "#   madtv --headless --script @questo_file --frames N");
+                let _ = writeln!(w, "#   madtv --headless --script questo_file --frames N");
                 let _ = writeln!(w, "# Formato: FRAME: azione (vedi madtv --help)");
             }
             self.rec(f, &format!("clock {clock}"));
