@@ -33,7 +33,7 @@ fn main() {
     let s = enhance::panel_samples(&m, &d);
     let here = enhance::find_panel(&m.bus.custom.display.front, d.size, &s);
     let t = std::time::Instant::now();
-    let r = enhance::probe_landing(m.clone(), d, s.clone());
+    let r = enhance::probe_landing_on(m.clone(), d, s.clone());
     println!(
         "{d:?}\ncampioni {} ritrovato qui {here:?}\narrivo {r:?} in {:?}",
         s.len(),

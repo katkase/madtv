@@ -291,12 +291,17 @@ schermate e differenze di RAM), `clone_check`, `landing_check`, `highlight_demo`
 risoluzione della finestra con le evidenziazioni). Il bus ha un punto di
 osservazione (`Bus::watch`) e la macchina punti di sonda (`probe_pcs`).
 
-Problema aperto: con le evidenziazioni attive Pam ha visto sfarfallare anche
-la grafica del gioco sotto un'animazione (il libro). Causa non ancora
-verificata; l'ipotesi più probabile è il ritmo irregolare dei frame, perché il
-click di prova breve gira nel ciclo della finestra (3–9 ms, a volte di più).
-Rimedio possibile: spostare anche quello nel thread. Lavoro sospeso il 2
-novembre su richiesta di Pam.
+Corretto dopo la prova di Pam con `--gpu --dev`: nelle stanze più pesanti
+(studio) gioco e musica rallentavano e il colore sfarfallava tra rosso e
+verde. Due cause: il click di prova breve girava nel ciclo della finestra
+(10–16 ms, di più quando la risposta era "rifiutato", ogni 3 frame), e la copia
+applicava movimenti del mouse che il gioco aveva accumulato ma non ancora
+usato, provando un punto diverso da quello sullo schermo. Ora anche il click
+breve gira in un thread (la finestra fa solo la copia, ~0,3 ms) e prima del
+click la copia azzera il movimento in sospeso (accumulatori all'offset
+`$2C2E`, `prepare_copy`). Lo sfarfallio della grafica del gioco sotto
+un'animazione (il libro) visto in precedenza aveva probabilmente la stessa
+causa.
 
 Prossimi passi:
 

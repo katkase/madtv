@@ -283,11 +283,16 @@ differences), `clone_check`, `landing_check`, `highlight_demo` (frames at
 window resolution with the highlights). The bus has a watchpoint
 (`Bus::watch`) and the machine has probe points (`probe_pcs`).
 
-Open issue: with the highlights on, Pam saw the game's own graphics flicker
-under an animation (the book). Cause not yet verified; the most likely
-hypothesis is irregular frame pacing, because the short trial click runs in
-the window loop (3–9 ms, sometimes more). Possible remedy: move it to the
-thread as well. Work paused on 2 November at Pam's request.
+Fixed after Pam's test with `--gpu --dev`: in heavier rooms (studio) the game
+and the music lagged and the colour flickered between red and green. Two
+causes: the short trial click ran in the window loop (10–16 ms, more when the
+answer was "refused", every 3 frames), and the copy applied mouse movements
+the game had accumulated but not yet used, testing a point different from the
+one on screen. Now the short trial click also runs in a thread (the window
+only makes the copy, ~0.3 ms) and the copy's pending mouse movement
+(accumulators at offset `$2C2E`) is cleared before the click
+(`prepare_copy`). The earlier flicker of the game graphics under an animation
+(the book) probably had the same cause.
 
 Next steps:
 

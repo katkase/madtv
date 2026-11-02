@@ -55,8 +55,6 @@ const ZONE_SCHEDULE_LIST: u16 = 0x0F;
 
 /// Frame massimi che la copia aspetta perché il gioco reagisca al click.
 const PROBE_FRAMES: u32 = 6;
-/// Frame minimi tra due click di prova.
-const PROBE_INTERVAL: u64 = 3;
 
 /// Oggetto agganciato al mouse.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -125,11 +123,31 @@ pub fn drag_state(m: &Machine) -> Option<Drag> {
 
 /// Click di prova: il gioco accetterebbe il rilascio adesso?
 pub fn probe_drop(m: &Machine) -> bool {
-    let Some(d) = drag_state(m) else {
-        return false;
-    };
-    let mut c = m.clone();
+    match drag_state(m) {
+        Some(d) => probe_drop_on(m.clone(), d),
+        None => false,
+    }
+}
+
+/// Accumulatori del mouse del gioco (movimento ricevuto e non ancora applicato).
+const OFF_MOUSE_PENDING: u32 = 0x2C2E;
+
+/// Prepara una copia per un click di prova: niente audio e niente movimento
+/// del mouse in sospeso. Quando il gioco è in ritardo ha movimenti accumulati
+/// che non ha ancora applicato al puntatore: la copia li applicherebbe durante
+/// la prova e proverebbe un punto diverso da quello che si vede.
+fn prepare_copy(c: &mut Machine) {
     c.bus.custom.paula.enabled = false;
+    if let Some(&(base, size, _)) = c.segments.get(2) {
+        if size > OFF_MOUSE_PENDING + 4 {
+            c.bus.poke32(base + OFF_MOUSE_PENDING, 0);
+        }
+    }
+}
+
+/// Click di prova su una copia già fatta (per il thread dei click di prova).
+pub fn probe_drop_on(mut c: Machine, d: Drag) -> bool {
+    prepare_copy(&mut c);
     c.bus.custom.left_button = true;
     for _ in 0..PROBE_FRAMES {
         if c.run_frame().is_some() {
@@ -203,12 +221,12 @@ pub fn find_panel(
 /// Restituisce il rettangolo in cui il gioco lo ridisegna, se lo ridisegna
 /// uguale (news, agenzie); None se sparisce (valigetta) o cambia aspetto
 /// (palinsesto). Da eseguire fuori dal ciclo della finestra: costa ~100 ms.
-pub fn probe_landing(
+pub fn probe_landing_on(
     mut c: Machine,
     d: Drag,
     samples: Vec<(i32, i32, u32)>,
 ) -> Option<(i32, i32, i32, i32)> {
-    c.bus.custom.paula.enabled = false;
+    prepare_copy(&mut c);
     c.bus.custom.left_button = true;
     let mut released = false;
     for _ in 0..PROBE_FRAMES {
@@ -244,31 +262,60 @@ struct LandingJob {
     samples: Vec<(i32, i32, u32)>,
 }
 
-/// Thread che esegue i click di prova lunghi senza rallentare la finestra.
-struct LandingWorker {
-    jobs: std::sync::mpsc::Sender<LandingJob>,
-    results: std::sync::mpsc::Receiver<(Drag, Option<(i32, i32, i32, i32)>)>,
+/// Thread che esegue i click di prova senza rallentare la finestra: un lavoro
+/// alla volta (se è occupato, il lavoro nuovo aspetta il giro successivo).
+struct Worker<J, R> {
+    jobs: std::sync::mpsc::Sender<J>,
+    results: std::sync::mpsc::Receiver<R>,
     busy: bool,
 }
 
-impl LandingWorker {
-    fn start() -> LandingWorker {
-        let (jt, jr) = std::sync::mpsc::channel::<LandingJob>();
-        let (rt, rr) = std::sync::mpsc::channel();
+impl<J: Send + 'static, R: Send + 'static> Worker<J, R> {
+    fn start(f: fn(J) -> R) -> Worker<J, R> {
+        let (jt, jr) = std::sync::mpsc::channel::<J>();
+        let (rt, rr) = std::sync::mpsc::channel::<R>();
         std::thread::spawn(move || {
             for j in jr {
-                let r = probe_landing(j.machine, j.drag, j.samples);
-                if rt.send((j.drag, r)).is_err() {
+                if rt.send(f(j)).is_err() {
                     break;
                 }
             }
         });
-        LandingWorker {
+        Worker {
             jobs: jt,
             results: rr,
             busy: false,
         }
     }
+
+    /// Ultimo risultato arrivato, se c'è.
+    fn poll(&mut self) -> Option<R> {
+        let mut last = None;
+        while let Ok(r) = self.results.try_recv() {
+            self.busy = false;
+            last = Some(r);
+        }
+        last
+    }
+
+    /// Affida un lavoro se il thread è libero; false se è occupato.
+    fn submit(&mut self, job: impl FnOnce() -> J) -> bool {
+        if self.busy {
+            return false;
+        }
+        self.busy = self.jobs.send(job()).is_ok();
+        self.busy
+    }
+}
+
+fn run_landing(j: LandingJob) -> (Drag, Option<(i32, i32, i32, i32)>) {
+    let d = j.drag;
+    (d, probe_landing_on(j.machine, j.drag, j.samples))
+}
+
+fn run_quick(j: (Machine, Drag)) -> (Drag, bool) {
+    let d = j.1;
+    (d, probe_drop_on(j.0, j.1))
 }
 
 /// Colori (0xAARRGGBB).
@@ -294,7 +341,10 @@ pub struct Enhancer {
     landing: Option<(u32, (i32, i32), (i32, i32, i32, i32))>,
     /// Ultimo punto caldo provato con il click lungo (per non ripeterlo).
     landing_tried: Option<(u32, (i32, i32))>,
-    worker: Option<LandingWorker>,
+    worker: Option<Worker<LandingJob, (Drag, Option<(i32, i32, i32, i32)>)>>,
+    quick: Option<Worker<(Machine, Drag), (Drag, bool)>>,
+    /// Ultimo punto caldo affidato al click di prova breve.
+    quick_sent: Option<(u32, (i32, i32))>,
     /// Click di prova lunghi eseguiti (statistica).
     pub landing_probes: u64,
 }
@@ -310,21 +360,23 @@ impl Enhancer {
     /// Esito del rilascio nel punto attuale: Some(true/false) se noto.
     fn verdict(&mut self, m: &Machine, d: &Drag) -> Option<bool> {
         let frame = m.bus.custom.frame;
-        let stale = match self.probe {
-            Some((img, hot, _, _)) => img != d.image || hot != d.hot,
-            None => true,
-        };
-        let due = match self.probe {
-            Some((img, _, _, f)) => img != d.image || frame >= f + PROBE_INTERVAL,
-            None => true,
-        };
-        if stale && due {
-            let t = std::time::Instant::now();
-            let ok = probe_drop(m);
-            self.probe_time += t.elapsed();
-            self.probes += 1;
-            self.probe = Some((d.image, d.hot, ok, frame));
+        let w = self.quick.get_or_insert_with(|| Worker::start(run_quick));
+        if let Some((pd, ok)) = w.poll() {
+            self.probe = Some((pd.image, pd.hot, ok, frame));
         }
+        // Nuovo click di prova se il punto caldo è cambiato rispetto all'ultimo
+        // affidato al thread (la copia si fa qui, ~2 ms; il resto gira là).
+        if self.quick_sent != Some((d.image, d.hot)) {
+            let t = std::time::Instant::now();
+            if w.submit(|| (m.clone(), *d)) {
+                self.quick_sent = Some((d.image, d.hot));
+                self.probes += 1;
+                // Tempo speso nella finestra (solo la copia).
+                self.probe_time += t.elapsed();
+            }
+        }
+        // Esito dell'ultimo click di prova per questo oggetto: mentre ci si
+        // muove resta quello del punto precedente finché arriva il nuovo.
         match self.probe {
             Some((img, _, ok, _)) if img == d.image => Some(ok),
             _ => None,
@@ -346,11 +398,8 @@ impl Enhancer {
             _ => self.still = Some((d.hot, frame)),
         }
         if let Some(w) = &mut self.worker {
-            while let Ok((jd, r)) = w.results.try_recv() {
-                w.busy = false;
-                if let Some(rect) = r {
-                    self.landing = Some((jd.image, jd.hot, rect));
-                }
+            if let Some((jd, Some(rect))) = w.poll() {
+                self.landing = Some((jd.image, jd.hot, rect));
             }
         }
         if d.in_schedule() {
@@ -367,18 +416,16 @@ impl Enhancer {
         let still_long = self.still.is_some_and(|(_, f)| frame >= f + LANDING_STILL);
         let tried = self.landing_tried == Some((d.image, d.hot));
         if verdict == Some(true) && still_long && !tried && self.landing.is_none() {
-            let w = self.worker.get_or_insert_with(LandingWorker::start);
-            if !w.busy {
-                let job = LandingJob {
-                    machine: m.clone(),
-                    drag: *d,
-                    samples: panel_samples(m, d),
-                };
-                if w.jobs.send(job).is_ok() {
-                    w.busy = true;
-                    self.landing_tried = Some((d.image, d.hot));
-                    self.landing_probes += 1;
-                }
+            let w = self
+                .worker
+                .get_or_insert_with(|| Worker::start(run_landing));
+            if w.submit(|| LandingJob {
+                machine: m.clone(),
+                drag: *d,
+                samples: panel_samples(m, d),
+            }) {
+                self.landing_tried = Some((d.image, d.hot));
+                self.landing_probes += 1;
             }
         }
         if verdict == Some(true) {
@@ -401,6 +448,7 @@ impl Enhancer {
                 Some(_) => {}
                 None => {
                     self.probe = None;
+                    self.quick_sent = None;
                     self.landing = None;
                     self.landing_tried = None;
                     self.still = None;
