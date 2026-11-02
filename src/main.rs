@@ -51,6 +51,8 @@ F11 tenuto premuto = avanti veloce, F12 = screenshot).
                        cpu auto|P   velocità della CPU
                      Le registrazioni fatte con --record sono script validi.
   --wav FILE         (headless) registra l'audio del gioco in un file WAV
+  --gpu              disegna con la GPU (wgpu) invece che in software
+                     (sperimentale; se la GPU non parte torna al software)
   --dev              modalità sviluppo: strato di sovrapposizione con le
                      evidenziazioni del trascinamento (F9 le alterna). Senza
                      --dev la finestra mostra solo il gioco emulato.
@@ -93,6 +95,7 @@ struct Opts {
     record: Option<PathBuf>,
     debug_overlay: bool,
     dev: bool,
+    gpu: bool,
 }
 
 fn parse_args() -> Result<Opts, String> {
@@ -123,6 +126,7 @@ fn parse_args() -> Result<Opts, String> {
         record: None,
         debug_overlay: false,
         dev: false,
+        gpu: false,
     };
     let mut it = std::env::args().skip(1);
     while let Some(a) = it.next() {
@@ -168,6 +172,7 @@ fn parse_args() -> Result<Opts, String> {
             "--record" => o.record = Some(val()?.into()),
             "--debug-overlay" => o.debug_overlay = true,
             "--dev" => o.dev = true,
+            "--gpu" => o.gpu = true,
             "--help" | "-h" => {
                 print!("{HELP}");
                 std::process::exit(0);
@@ -396,6 +401,7 @@ fn main() {
                     }
                     .min(render::HEIGHT),
                     margin: o.margin,
+                    gpu: o.gpu,
                 };
                 match Frontend::new(&wo) {
                     None => StopReason::FrameLimit,

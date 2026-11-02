@@ -34,6 +34,8 @@ pub struct WindowOpts {
     pub rows: usize,
     /// Margine intorno all'immagine, in pixel del gioco.
     pub margin: usize,
+    /// Disegno su GPU (wgpu) invece che in software.
+    pub gpu: bool,
 }
 
 /// Come è finita l'esecuzione di un programma nella finestra.
@@ -47,6 +49,9 @@ pub enum RunEnd {
 }
 
 pub struct Frontend {
+    /// Motore su GPU (`--gpu`). Dichiarato prima di `win` perché venga
+    /// distrutto prima: la sua superficie usa la finestra.
+    gpu: Option<crate::gpu::Gpu>,
     win: Window,
     audio: Option<AudioOut>,
     buf: Vec<u32>,
@@ -81,6 +86,26 @@ impl Frontend {
             }
         };
         win.set_cursor_visibility(false);
+        let gpu = if o.gpu {
+            let layout = crate::gpu::Layout {
+                scale: s,
+                margin: o.margin,
+                rows: o.rows,
+            };
+            // SAFETY: `gpu` viene distrutto prima di `win` (ordine dei campi).
+            match unsafe { crate::gpu::Gpu::for_window(&win, layout) } {
+                Ok(g) => {
+                    println!("disegno su GPU: {}", g.adapter_info);
+                    Some(g)
+                }
+                Err(e) => {
+                    eprintln!("GPU non disponibile ({e}): uso il disegno software");
+                    None
+                }
+            }
+        } else {
+            None
+        };
         // Audio: se c'è un dispositivo, è la scheda audio a dettare il ritmo dei
         // frame; altrimenti la finestra limita il ritmo a 50 frame al secondo.
         let audio = if o.audio { AudioOut::open() } else { None };
@@ -97,6 +122,7 @@ impl Frontend {
             }
         }
         Some(Frontend {
+            gpu,
             win,
             audio,
             buf: vec![0; w * h],
@@ -162,6 +188,21 @@ impl Frontend {
     /// Ingrandisce un'immagine larga WIDTH pixel e la mostra dentro il margine.
     /// False se la finestra è chiusa.
     fn present(&mut self, src: &[u32], shapes: &[Shape]) -> bool {
+        if let Some(g) = &mut self.gpu {
+            let rows = self.rows;
+            let src = &src[..src.len().min(rows * WIDTH)];
+            match g.render(src, shapes) {
+                Ok(()) => {
+                    // Solo eventi e input: l'immagine l'ha già presentata wgpu.
+                    self.win.update();
+                    return self.win.is_open();
+                }
+                Err(e) => {
+                    eprintln!("errore della GPU ({e}): passo al disegno software");
+                    self.gpu = None;
+                }
+            }
+        }
         let s = self.scale;
         let mg = self.margin;
         let w = (WIDTH + 2 * mg) * s;

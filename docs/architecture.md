@@ -227,6 +227,35 @@ from emulated memory; the window composes them over the picture. The layer
 exists only in development mode (`--dev`): by default the window shows only
 the game.
 
+## GPU renderer
+
+`gpu.rs` is an alternative to the software drawing of the window, enabled
+with `--gpu`. It takes exactly the same input (the game picture, 320 pixels
+wide, and the list of overlay shapes) and draws it with `wgpu` in one render
+pass with two pipelines:
+
+1. **game**: a triangle covering the whole window; the fragment shader works
+   out which game pixel falls under each window pixel (same integer scale and
+   margin as the software path) and reads it with `textureLoad`, without a
+   sampler, so the magnification is the same blocky one;
+2. **shapes**: instanced rectangles in window pixels, with alpha blending and
+   up to two masks per instance, applied by discarding the fragments inside
+   them.
+
+The surface is created on the `minifb` window through its
+`raw-window-handle` handles; in GPU mode the window never receives a buffer
+(`update` only processes events), so minifb leaves painting to the system.
+Present mode Mailbox or Immediate when available (the pace is set by the
+sound card, not by vsync), Fifo otherwise. A non-sRGB format is chosen so
+colours are written as they are, like the software path. If anything fails
+the window falls back to software drawing.
+
+`Gpu::offscreen` renders into a texture that can be read back: the test
+`gpu::tests::stesso_risultato_del_disegno_software` and
+`GPU=1 cargo run --release --example highlight_demo` compare the two paths
+(0 different pixels on real game frames with highlights, using lavapipe,
+Mesa's software Vulkan).
+
 ## Machine copies and trial clicks
 
 `Machine` implements `Clone`: RAM, custom chips and emulated operating system

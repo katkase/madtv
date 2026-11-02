@@ -13,6 +13,7 @@ pub mod audio;
 pub mod bus;
 pub mod custom;
 pub mod enhance;
+pub mod gpu;
 pub mod hunk;
 pub mod iff;
 pub mod input;

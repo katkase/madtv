@@ -307,8 +307,21 @@ Prossimi passi:
    riscrittura graduale, a partire da quelle trovate qui.
 
 
+## Disegno su GPU (dal 2 novembre 2026)
+
+Su richiesta di Pam, un motore di disegno su GPU con `wgpu` 30 (`src/gpu.rs`,
+opzione `--gpu`), come base per il lavoro futuro in alta risoluzione (grafica
+sostitutiva, filtri, testo). Stessi dati in ingresso del percorso software,
+stessa immagine in uscita: 0 pixel diversi su frame veri con le evidenziazioni
+(verificato fuori schermo con lavapipe; il test viene saltato se non c'è
+Vulkan/GL). Non ancora provato su Windows: il rischio è la convivenza della
+finestra di minifb (GDI) con la superficie wgpu sulla stessa finestra; se non
+funziona, il passo successivo è una finestra winit per il percorso GPU. La
+compilazione si allunga di circa un minuto e mezzo (dipendenze di wgpu).
+
 ## Prossimi passi
 
+0. Prova di `--gpu` su Windows da parte di Pam (con e senza `--dev`).
 0. Evidenziazioni del trascinamento: vedi "Strada verso le evidenziazioni".
 1. ~~Conferma all'ascolto~~: fatto, Pam conferma che la musica è fedele all'Amiga.
 2. Verificare in WinUAE: righe colorate ai bordi durante il logo Rainbow

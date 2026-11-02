@@ -297,8 +297,20 @@ Next steps:
 7. Hooks into the game functions (address → Rust function table) and gradual
    rewrite, starting from the ones found here.
 
+## GPU renderer (from 2 November 2026)
+
+At Pam's request, a GPU renderer with `wgpu` 30 (`src/gpu.rs`, option
+`--gpu`), as the base for future high-resolution work (replacement graphics,
+filters, text). Same input as the software path, same output: 0 different
+pixels on real frames with highlights (checked offscreen with lavapipe; the
+test is skipped if no Vulkan/GL is available). Not yet tried on Windows: the
+risk is the coexistence of the minifb window (GDI) and the wgpu surface on
+the same window; if it does not work, the next step is a winit window for the
+GPU path. Build time grows by about 1.5 minutes (wgpu dependencies).
+
 ## Next steps
 
+0. Pam's test of `--gpu` on Windows (with and without `--dev`).
 0. Drag highlights: see "Road to the highlights".
 1. ~~Listening check~~: done, Pam confirms the music is faithful to the Amiga.
 2. Check in WinUAE: coloured lines at the edges during the Rainbow Arts logo;

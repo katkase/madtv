@@ -13,7 +13,12 @@ use madtv::render::WIDTH;
 #[allow(dead_code)]
 mod lab;
 
-fn save(m: &Machine, shapes: &[madtv::overlay::Shape], path: &str) {
+fn save(
+    m: &Machine,
+    shapes: &[madtv::overlay::Shape],
+    path: &str,
+    gpu: Option<&mut madtv::gpu::Gpu>,
+) {
     let (s, mg, rows) = (3usize, 20usize, 220usize);
     let (w, h) = ((WIDTH + 2 * mg) * s, (mg + rows) * s);
     let mut buf = vec![0u32; w * h];
@@ -36,6 +41,23 @@ fn save(m: &Machine, shapes: &[madtv::overlay::Shape], path: &str) {
         origin: (mg * s, mg * s),
     }
     .draw(shapes);
+    if let Some(g) = gpu {
+        // Stesso frame con il motore su GPU: confronto e salvataggio di quello.
+        g.render(&src[..rows * WIDTH], shapes).unwrap();
+        let gb = g.read_back().unwrap();
+        let diff = gb
+            .iter()
+            .zip(&buf)
+            .filter(|(a, b)| {
+                (0..3).any(|k| ((**a >> (k * 8)) & 0xFF).abs_diff((**b >> (k * 8)) & 0xFF) > 1)
+            })
+            .count();
+        println!(
+            "  GPU ({}): {diff} pixel diversi dal disegno software",
+            g.adapter_info
+        );
+        buf = gb;
+    }
     let mut rgb = Vec::with_capacity(w * h * 3);
     for p in &buf {
         rgb.extend_from_slice(&[(p >> 16) as u8, (p >> 8) as u8, *p as u8]);
@@ -66,6 +88,14 @@ fn main() {
     m.boot_os();
     m.load_executable(&exe, "s").unwrap();
     let mut en = Enhancer::new(true);
+    let mut gpu = std::env::var("GPU").ok().map(|_| {
+        madtv::gpu::Gpu::offscreen(madtv::gpu::Layout {
+            scale: 3,
+            margin: 20,
+            rows: 220,
+        })
+        .expect("GPU")
+    });
     let mut next = 0;
     let t = std::time::Instant::now();
     while m.bus.custom.frame <= last {
@@ -83,7 +113,7 @@ fn main() {
         let f = m.bus.custom.frame;
         if frames.contains(&f) {
             let p = format!("{dir}/{f:05}.png");
-            save(&m, &shapes, &p);
+            save(&m, &shapes, &p, gpu.as_mut());
             println!("{p}: {:?}", madtv::enhance::drag_state(&m));
         }
     }

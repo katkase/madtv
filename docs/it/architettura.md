@@ -230,6 +230,35 @@ forme da mostrare leggendo lo stato del gioco dalla memoria emulata; la
 finestra le compone sopra l'immagine. Lo strato esiste solo in modalità
 sviluppo (`--dev`): di default la finestra mostra solo il gioco.
 
+## Disegno su GPU
+
+`gpu.rs` è un'alternativa al disegno software della finestra, attiva con
+`--gpu`. Riceve esattamente gli stessi dati (l'immagine del gioco, larga 320
+pixel, e l'elenco di forme dello strato) e li disegna con `wgpu` in un solo
+render pass con due pipeline:
+
+1. **gioco**: un triangolo che copre tutta la finestra; il fragment shader
+   calcola quale pixel del gioco cade sotto ogni pixel della finestra (stessa
+   scala intera e stesso margine del percorso software) e lo legge con
+   `textureLoad`, senza sampler, quindi l'ingrandimento è lo stesso, a blocchi;
+2. **forme**: rettangoli in pixel della finestra disegnati come istanze, con
+   trasparenza e fino a due maschere per istanza, applicate scartando i
+   frammenti che vi cadono dentro.
+
+La superficie si crea sulla finestra di `minifb` attraverso i suoi handle
+`raw-window-handle`; in modalità GPU la finestra non riceve mai un buffer
+(`update` elabora solo gli eventi), così minifb lascia il disegno al sistema.
+Modalità di presentazione Mailbox o Immediate se disponibili (il ritmo lo
+detta la scheda audio, non il vsync), altrimenti Fifo. Si sceglie un formato
+non sRGB perché i colori vengano scritti così come sono, come nel percorso
+software. Se qualcosa non va, la finestra torna al disegno software.
+
+`Gpu::offscreen` disegna su una texture che si può rileggere: il test
+`gpu::tests::stesso_risultato_del_disegno_software` e
+`GPU=1 cargo run --release --example highlight_demo` confrontano i due
+percorsi (0 pixel diversi su frame veri del gioco con le evidenziazioni, con
+lavapipe, il Vulkan software di Mesa).
+
 ## Copie della macchina e click di prova
 
 `Machine` implementa `Clone`: RAM, chip custom e sistema operativo emulato
